@@ -286,7 +286,7 @@ func (d *ILanZou) Put(ctx context.Context, dstDir model.Obj, stream model.FileSt
 		req.SetBody(base.Json{
 			"fileId":   "",
 			"fileName": stream.GetName(),
-			"fileSize": stream.GetSize() / 1024,
+			"fileSize": stream.GetSize()/1024 + 1,
 			"folderId": dstDir.GetID(),
 			"md5":      etag,
 			"type":     1,
