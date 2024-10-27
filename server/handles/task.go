@@ -98,7 +98,7 @@ func taskRoute[T task.TaskInfoWithCreator](g *gin.RouterGroup, manager *tache.Ma
 			common.ErrorStrResp(c, "user invalid", 401)
 			return
 		}
-		common.SuccessResp(c, getTaskInfos(task.GetByCondition(manager, func(task T) bool {
+		common.SuccessResp(c, getTaskInfos(manager.GetByCondition(func(task T) bool {
 			// avoid directly passing the user object into the function to reduce closure size
 			return (isAdmin || uid == task.GetCreator().ID) &&
 				argsContains(task.GetState(), tache.StatePending, tache.StateRunning, tache.StateCanceling,
@@ -112,7 +112,7 @@ func taskRoute[T task.TaskInfoWithCreator](g *gin.RouterGroup, manager *tache.Ma
 			common.ErrorStrResp(c, "user invalid", 401)
 			return
 		}
-		common.SuccessResp(c, getTaskInfos(task.GetByCondition(manager, func(task T) bool {
+		common.SuccessResp(c, getTaskInfos(manager.GetByCondition(func(task T) bool {
 			return (isAdmin || uid == task.GetCreator().ID) &&
 				argsContains(task.GetState(), tache.StateCanceled, tache.StateFailed, tache.StateSucceeded)
 		})))
@@ -139,7 +139,7 @@ func taskRoute[T task.TaskInfoWithCreator](g *gin.RouterGroup, manager *tache.Ma
 			common.ErrorStrResp(c, "user invalid", 401)
 			return
 		}
-		task.RemoveByCondition(manager, func(task T) bool {
+		manager.RemoveByCondition(func(task T) bool {
 			return (isAdmin || uid == task.GetCreator().ID) &&
 				argsContains(task.GetState(), tache.StateCanceled, tache.StateFailed, tache.StateSucceeded)
 		})
@@ -152,7 +152,7 @@ func taskRoute[T task.TaskInfoWithCreator](g *gin.RouterGroup, manager *tache.Ma
 			common.ErrorStrResp(c, "user invalid", 401)
 			return
 		}
-		task.RemoveByCondition(manager, func(task T) bool {
+		manager.RemoveByCondition(func(task T) bool {
 			return (isAdmin || uid == task.GetCreator().ID) && task.GetState() == tache.StateSucceeded
 		})
 		common.SuccessResp(c)
@@ -164,7 +164,7 @@ func taskRoute[T task.TaskInfoWithCreator](g *gin.RouterGroup, manager *tache.Ma
 			common.ErrorStrResp(c, "user invalid", 401)
 			return
 		}
-		tasks := task.GetByCondition(manager, func(task T) bool {
+		tasks := manager.GetByCondition(func(task T) bool {
 			return (isAdmin || uid == task.GetCreator().ID) && task.GetState() == tache.StateFailed
 		})
 		for _, t := range tasks {
