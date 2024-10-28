@@ -76,7 +76,7 @@ func (d *Local) Init(ctx context.Context) error {
 	if d.thumbConcurrency == 0 {
 		d.thumbTokenBucket = NewNopTokenBucket()
 	} else {
-		d.thumbTokenBucket = NewStaticTokenBucket(d.thumbConcurrency)
+		d.thumbTokenBucket = NewStaticTokenBucketWithMigration(d.thumbTokenBucket, d.thumbConcurrency)
 	}
 	return nil
 }

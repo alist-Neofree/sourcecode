@@ -23,6 +23,33 @@ func NewStaticTokenBucket(size int) StaticTokenBucket {
 	return StaticTokenBucket{bucket: bucket}
 }
 
+func NewStaticTokenBucketWithMigration(oldBucket TokenBucket, size int) StaticTokenBucket {
+	if oldBucket != nil {
+		oldStaticBucket, ok := oldBucket.(StaticTokenBucket)
+		if ok {
+			oldSize := cap(oldStaticBucket.bucket)
+			migrateSize := oldSize
+			if size < migrateSize {
+				migrateSize = size
+			}
+
+			bucket := make(chan struct{}, size)
+			for range size - migrateSize {
+				bucket <- struct{}{}
+			}
+
+			go func() {
+				for range migrateSize {
+					<-oldStaticBucket.bucket
+					bucket <- struct{}{}
+				}
+			}()
+			return StaticTokenBucket{bucket: bucket}
+		}
+	}
+	return NewStaticTokenBucket(size)
+}
+
 func (b StaticTokenBucket) Take() <-chan struct{} {
 	return b.bucket
 }
