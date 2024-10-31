@@ -181,7 +181,7 @@ func (d *Pan115) rapidUpload(fileSize int64, fileName, dirID, preID, fileID stri
 		}
 
 		form.Set("t", t.String())
-		form.Set("token", d.GenerateToken(fileID, preID, t.String(), fileSizeStr, signKey, signVal))
+		form.Set("token", d.client.GenerateToken(fileID, preID, t.String(), fileSizeStr, signKey, signVal))
 		if signKey != "" && signVal != "" {
 			form.Set("sign_key", signKey)
 			form.Set("sign_val", signVal)
