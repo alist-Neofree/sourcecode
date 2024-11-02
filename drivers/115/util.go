@@ -268,6 +268,8 @@ func (d *Pan115) UploadByMultipart(params *driver115.UploadOSSParams, fileSize i
 			f(options)
 		}
 	}
+	// oss 启用Sequential必须按顺序上传
+	options.ThreadsNum = 1
 
 	if ossToken, err = d.client.GetOSSToken(); err != nil {
 		return err
@@ -294,6 +296,7 @@ func (d *Pan115) UploadByMultipart(params *driver115.UploadOSSParams, fileSize i
 	if imur, err = bucket.InitiateMultipartUpload(params.Object,
 		oss.SetHeader(driver115.OssSecurityTokenHeaderName, ossToken.SecurityToken),
 		oss.UserAgentHeader(driver115.OSSUserAgent),
+		oss.EnableSha1(), oss.Sequential(),
 	); err != nil {
 		return err
 	}
@@ -373,7 +376,7 @@ LOOP:
 	}
 
 	// 不知道啥原因，oss那边分片上传不计算sha1，导致115服务器校验错误
-	params.Callback.Callback = strings.ReplaceAll(params.Callback.Callback, "${sha1}", params.SHA1)
+	// params.Callback.Callback = strings.ReplaceAll(params.Callback.Callback, "${sha1}", params.SHA1)
 	if _, err := bucket.CompleteMultipartUpload(imur, parts, append(
 		driver115.OssOption(params, ossToken),
 		oss.CallbackResult(&bodyBytes),
