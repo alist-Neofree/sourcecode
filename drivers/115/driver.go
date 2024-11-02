@@ -2,7 +2,6 @@ package _115
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -122,10 +121,7 @@ func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 	if err := d.WaitLimit(ctx); err != nil {
 		return err
 	}
-	if stream.GetSize() > utils.GB*20 { // TODO 由于官方分片上传接口失效，所以使用普通上传小于20GB的文件
-		return fmt.Errorf("unsupported file size: 20GB limit exceeded")
-	}
-	// 分片上传
+
 	var (
 		fastInfo *driver115.UploadInitResp
 		dirID    = dstDir.GetID()
@@ -181,13 +177,11 @@ func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 	}
 
 	// 闪传失败，上传
-	// if stream.GetSize() <= utils.KB{ // 文件大小小于1KB，改用普通模式上传
-	if stream.GetSize() <= utils.GB*20 { // TODO 由于官方分片上传接口失效，所以使用普通上传小于20GB的文件
+	if stream.GetSize() <= utils.KB { // 文件大小小于1KB，改用普通模式上传
 		return d.client.UploadByOSS(&fastInfo.UploadOSSParams, stream, dirID)
 	}
-	return driver115.ErrUnexpected
 	// 分片上传
-	// return d.UploadByMultipart(&fastInfo.UploadOSSParams, stream.GetSize(), stream, dirID)
+	return d.UploadByMultipart(&fastInfo.UploadOSSParams, stream.GetSize(), stream, dirID)
 }
 
 func (d *Pan115) OfflineList(ctx context.Context) ([]*driver115.OfflineTask, error) {
