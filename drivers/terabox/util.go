@@ -17,6 +17,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	initialChunkSize     int64 = 4 << 20 // 4MB
+	initialSizeThreshold int64 = 4 << 30 // 4GB
+)
+
 func getStrBetween(raw, start, end string) string {
 	regexPattern := fmt.Sprintf(`%s(.*?)%s`, regexp.QuoteMeta(start), regexp.QuoteMeta(end))
 	regex := regexp.MustCompile(regexPattern)
@@ -257,4 +262,20 @@ func encodeURIComponent(str string) string {
 	r := url.QueryEscape(str)
 	r = strings.ReplaceAll(r, "+", "%20")
 	return r
+}
+
+func calculateChunkSize(streamSize int64) int64 {
+	chunkSize := initialChunkSize
+	sizeThreshold := initialSizeThreshold
+
+	if streamSize < chunkSize {
+		return streamSize
+	}
+
+	for streamSize > sizeThreshold {
+		chunkSize <<= 1
+		sizeThreshold <<= 1
+	}
+
+	return chunkSize
 }
