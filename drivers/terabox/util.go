@@ -86,11 +86,15 @@ func (d *Terabox) request(rurl string, method string, callback base.ReqCallback,
 			return d.request(rurl, method, callback, resp, true)
 		}
 	} else if errno == -6 {
-		log.Debugln(res.Header())
-		d.url_domain_prefix = res.Header()["Url-Domain-Prefix"][0]
-		d.base_url = "https://" + d.url_domain_prefix + ".terabox.com"
-		log.Debugln("Redirect base_url to", d.base_url)
-		return d.request(rurl, method, callback, resp, noRetry...)
+		header := res.Header()
+		log.Debugln(header)
+		urlDomainPrefix := header.Get("Url-Domain-Prefix")
+		if len(urlDomainPrefix) > 0 {
+			d.url_domain_prefix = urlDomainPrefix
+			d.base_url = "https://" + d.url_domain_prefix + ".terabox.com"
+			log.Debugln("Redirect base_url to", d.base_url)
+			return d.request(rurl, method, callback, resp, noRetry...)
+		}
 	}
 	return res.Body(), nil
 }
