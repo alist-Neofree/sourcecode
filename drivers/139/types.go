@@ -198,7 +198,6 @@ type QueryContentListResp struct {
 	} `json:"data"`
 }
 
-
 type QueryGroupContentListResp struct {
 	BaseResp
 	Data struct {
