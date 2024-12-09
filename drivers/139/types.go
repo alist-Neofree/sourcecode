@@ -218,6 +218,7 @@ type QueryGroupContentListResp struct {
 			ContCnt     int       `json:"contCnt"`   // 文件数量
 		} `json:"getGroupContentResult"`
 	} `json:"data"`
+}
 
 type ParallelHashCtx struct {
 	PartOffset int64 `json:"partOffset"`
