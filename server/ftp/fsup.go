@@ -87,6 +87,7 @@ func (f *FileUploadProxy) Close() error {
 		WebPutAsTask: false,
 	}
 	s.SetTmpFile(f.buffer)
+	s.Closers.Add(f.buffer)
 	_, err = fs.PutAsTask(f.ctx, dir, s)
 	return err
 }
