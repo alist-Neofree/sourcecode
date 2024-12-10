@@ -87,5 +87,6 @@ func (f *FileUploadProxy) Close() error {
 		WebPutAsTask: false,
 	}
 	s.SetTmpFile(f.buffer)
-	return fs.PutDirectly(f.ctx, dir, s, true)
+	_, err = fs.PutAsTask(f.ctx, dir, s)
+	return err
 }
