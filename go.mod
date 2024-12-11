@@ -3,6 +3,8 @@ module github.com/alist-org/alist/v3
 go 1.22.4
 
 require (
+	github.com/KirCute/ftpserverlib-pasvportmap v1.24.1-1
+	github.com/KirCute/sftpd-alist v0.0.7
 	github.com/SheltonZhu/115driver v1.0.32
 	github.com/Xhofe/go-cache v0.0.0-20240804043513-b1a71927bc21
 	github.com/Xhofe/rateg v0.0.0-20230728072201-251a4e1adad4
@@ -60,7 +62,7 @@ require (
 	github.com/xhofe/tache v0.1.3
 	github.com/xhofe/wopan-sdk-go v0.1.3
 	github.com/zzzhr1990/go-common-entity v0.0.0-20221216044934-fd1c571e3a22
-	golang.org/x/crypto v0.27.0
+	golang.org/x/crypto v0.30.0
 	golang.org/x/exp v0.0.0-20240904232852-e7e105dedf7e
 	golang.org/x/image v0.19.0
 	golang.org/x/net v0.28.0
@@ -76,7 +78,6 @@ require (
 
 require (
 	github.com/BurntSushi/toml v0.3.1 // indirect
-	github.com/KirCute/ftpserverlib-pasvportmap v0.0.0-20241208190057-c9a7bf2571e2 // indirect
 	github.com/blevesearch/go-faiss v1.0.20 // indirect
 	github.com/blevesearch/zapx/v16 v16.1.5 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
@@ -90,6 +91,8 @@ require (
 	github.com/hekmon/cunits/v2 v2.1.0 // indirect
 	github.com/ipfs/boxo v0.12.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
+	github.com/taruti/binp v0.0.0-20160923074924-983014bd3f70 // indirect
+	github.com/taruti/bytepool v0.0.0-20160310082835-5e3a9ea56543 // indirect
 )
 
 require (
@@ -223,10 +226,10 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.etcd.io/bbolt v1.3.8 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
+	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/term v0.24.0 // indirect
-	golang.org/x/text v0.18.0 // indirect
+	golang.org/x/term v0.27.0 // indirect
+	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/tools v0.24.0 // indirect
 	google.golang.org/api v0.169.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240604185151-ef581f913117 // indirect

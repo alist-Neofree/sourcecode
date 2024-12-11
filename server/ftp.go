@@ -70,7 +70,7 @@ func NewMainDriver() (*FtpMainDriver, error) {
 			Banner:                    setting.GetStr(conf.Announcement),
 			TLSRequired:               tlsRequired,
 			DisableLISTArgs:           false,
-			DisableSite:               true,
+			DisableSite:               false,
 			DisableActiveMode:         conf.Conf.FTP.DisableActiveMode,
 			EnableHASH:                false,
 			DisableSTAT:               false,
@@ -79,6 +79,9 @@ func NewMainDriver() (*FtpMainDriver, error) {
 			DefaultTransferType:       transferType,
 			ActiveConnectionsCheck:    activeConnCheck,
 			PasvConnectionsCheck:      pasvConnCheck,
+			SiteHandlers: map[string]ftpserver.SiteHandler{
+				"SIZE": ftp.HandleSIZE,
+			},
 		},
 		proxyHeader:  header,
 		clients:      make(map[uint32]ftpserver.ClientContext),
@@ -128,7 +131,7 @@ func (d *FtpMainDriver) AuthUser(cc ftpserver.ClientContext, user, pass string) 
 		}
 	}
 	if userObj.Disabled || !userObj.CanFTPAccess() {
-		return nil, errors.New("user not allowed to access FTP")
+		return nil, errors.New("user is not allowed to access via FTP")
 	}
 
 	ctx := context.Background()

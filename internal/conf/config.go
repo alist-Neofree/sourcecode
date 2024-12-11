@@ -84,6 +84,11 @@ type FTP struct {
 	EnablePasvConnIPCheck   bool   `json:"enable_pasv_conn_ip_check" env:"ENABLE_PASV_CONN_IP_CHECK"`
 }
 
+type SFTP struct {
+	Enable bool   `json:"enable" env:"ENABLE"`
+	Listen string `json:"listen" env:"LISTEN"`
+}
+
 type Config struct {
 	Force                 bool        `json:"force" env:"FORCE"`
 	SiteURL               string      `json:"site_url" env:"SITE_URL"`
@@ -104,6 +109,7 @@ type Config struct {
 	Cors                  Cors        `json:"cors" envPrefix:"CORS_"`
 	S3                    S3          `json:"s3" envPrefix:"S3_"`
 	FTP                   FTP         `json:"ftp" envPrefix:"FTP_"`
+	SFTP                  SFTP        `json:"sftp" envPrefix:"SFTP_"`
 }
 
 func DefaultConfig() *Config {
@@ -184,6 +190,10 @@ func DefaultConfig() *Config {
 			DefaultTransferBinary:   false,
 			EnableActiveConnIPCheck: true,
 			EnablePasvConnIPCheck:   true,
+		},
+		SFTP: SFTP{
+			Enable: true,
+			Listen: ":5222",
 		},
 	}
 }

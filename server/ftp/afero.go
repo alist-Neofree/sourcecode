@@ -5,13 +5,15 @@ import (
 	"errors"
 	ftpserver "github.com/KirCute/ftpserverlib-pasvportmap"
 	"github.com/alist-org/alist/v3/internal/errs"
+	"github.com/alist-org/alist/v3/internal/fs"
 	"github.com/spf13/afero"
 	"os"
 	"time"
 )
 
 type AferoAdapter struct {
-	ctx context.Context
+	ctx          context.Context
+	nextFileSize int64
 }
 
 func NewAferoAdapter(ctx context.Context) *AferoAdapter {
@@ -78,14 +80,36 @@ func (a *AferoAdapter) ReadDir(name string) ([]os.FileInfo, error) {
 }
 
 func (a *AferoAdapter) GetHandle(name string, flags int, offset int64) (ftpserver.FileTransfer, error) {
+	fileSize := a.nextFileSize
+	a.nextFileSize = 0
 	if offset != 0 {
-		return nil, errors.New("offset")
+		return nil, errs.NotSupport
 	}
-	if (flags & os.O_APPEND) > 0 {
-		return nil, errors.New("append")
+	if (flags & os.O_SYNC) != 0 {
+		return nil, errs.NotSupport
 	}
-	if (flags & os.O_WRONLY) > 0 {
-		return OpenUpload(a.ctx, name)
+	if (flags & os.O_APPEND) != 0 {
+		return nil, errs.NotSupport
+	}
+	_, err := fs.Get(a.ctx, name, &fs.GetArgs{})
+	exists := err == nil
+	if (flags&os.O_CREATE) == 0 && !exists {
+		return nil, errs.ObjectNotFound
+	}
+	if (flags&os.O_EXCL) != 0 && exists {
+		return nil, errors.New("file already exists")
+	}
+	if (flags & os.O_WRONLY) != 0 {
+		trunc := (flags & os.O_TRUNC) != 0
+		if fileSize > 0 {
+			return OpenUploadWithLength(a.ctx, name, trunc, fileSize)
+		} else {
+			return OpenUpload(a.ctx, name, trunc)
+		}
 	}
 	return OpenDownload(a.ctx, name)
+}
+
+func (a *AferoAdapter) SetNextFileSize(size int64) {
+	a.nextFileSize = size
 }
