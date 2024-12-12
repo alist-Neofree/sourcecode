@@ -6,8 +6,8 @@ github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/KirCute/ftpserverlib-pasvportmap v1.25.0 h1:ikwCzeqoqN6wvBHOB9OI6dde/jbV7EoTMpUcxtYl5Po=
 github.com/KirCute/ftpserverlib-pasvportmap v1.25.0/go.mod h1:v0NgMtKDDi/6CM6r4P+daCljCW3eO9yS+Z+pZDTKo1E=
-github.com/KirCute/sftpd-alist v0.0.8 h1:iMJZmQFNLGnUCDt4NT6+vBm1B+MlrPgK2OhdoBS9Qc0=
-github.com/KirCute/sftpd-alist v0.0.8/go.mod h1:pPFzr6GrKqXvFXLr46ZpoqmtSpwH8DKTYloSp/ybzKQ=
+github.com/KirCute/sftpd-alist v0.0.11 h1:BGInXmmLBI+v6S9WZCwvY0DRK1vDprGNcTv/57p2GSo=
+github.com/KirCute/sftpd-alist v0.0.11/go.mod h1:pPFzr6GrKqXvFXLr46ZpoqmtSpwH8DKTYloSp/ybzKQ=
 github.com/Max-Sum/base32768 v0.0.0-20230304063302-18e6ce5945fd h1:nzE1YQBdx1bq9IlZinHa+HVffy+NmVRoKr+wHN8fpLE=
 github.com/Max-Sum/base32768 v0.0.0-20230304063302-18e6ce5945fd/go.mod h1:C8yoIfvESpM3GD07OCHU7fqI7lhwyZ2Td1rbNbTAhnc=
 github.com/RoaringBitmap/roaring v1.9.3 h1:t4EbC5qQwnisr5PrP9nt0IRhRTb9gMUgQF4t4S2OByM=

@@ -4,7 +4,7 @@ go 1.22.4
 
 require (
 	github.com/KirCute/ftpserverlib-pasvportmap v1.25.0
-	github.com/KirCute/sftpd-alist v0.0.8
+	github.com/KirCute/sftpd-alist v0.0.11
 	github.com/SheltonZhu/115driver v1.0.32
 	github.com/Xhofe/go-cache v0.0.0-20240804043513-b1a71927bc21
 	github.com/Xhofe/rateg v0.0.0-20230728072201-251a4e1adad4
