@@ -3,8 +3,8 @@ module github.com/alist-org/alist/v3
 go 1.22.4
 
 require (
-	github.com/KirCute/ftpserverlib-pasvportmap v1.24.1-1
-	github.com/KirCute/sftpd-alist v0.0.7
+	github.com/KirCute/ftpserverlib-pasvportmap v1.25.0
+	github.com/KirCute/sftpd-alist v0.0.8
 	github.com/SheltonZhu/115driver v1.0.32
 	github.com/Xhofe/go-cache v0.0.0-20240804043513-b1a71927bc21
 	github.com/Xhofe/rateg v0.0.0-20230728072201-251a4e1adad4
@@ -91,7 +91,6 @@ require (
 	github.com/hekmon/cunits/v2 v2.1.0 // indirect
 	github.com/ipfs/boxo v0.12.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
-	github.com/taruti/binp v0.0.0-20160923074924-983014bd3f70 // indirect
 	github.com/taruti/bytepool v0.0.0-20160310082835-5e3a9ea56543 // indirect
 )
 

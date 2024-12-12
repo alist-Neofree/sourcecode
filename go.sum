@@ -4,10 +4,10 @@ cloud.google.com/go/compute/metadata v0.3.0 h1:Tz+eQXMEqDIKRsmY3cHTL6FVaynIjX2Qx
 cloud.google.com/go/compute/metadata v0.3.0/go.mod h1:zFmK7XCadkQkj6TtorcaGlCW1hT1fIilQDwofLpJ20k=
 github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
-github.com/KirCute/ftpserverlib-pasvportmap v1.24.1-1 h1:s9UxPaJ77e2gGLxvrERL3g8tuAABkdbz6FPLNOHa4wQ=
-github.com/KirCute/ftpserverlib-pasvportmap v1.24.1-1/go.mod h1:v0NgMtKDDi/6CM6r4P+daCljCW3eO9yS+Z+pZDTKo1E=
-github.com/KirCute/sftpd-alist v0.0.7 h1:GiI9hCV4enkI3IpJrIFtpgYBbhJEYSZkwk14rIKnaGE=
-github.com/KirCute/sftpd-alist v0.0.7/go.mod h1:D0SJlkoHPWii6d3sq8GG+b0GEXJjYqRRt5wRTwA5qnc=
+github.com/KirCute/ftpserverlib-pasvportmap v1.25.0 h1:ikwCzeqoqN6wvBHOB9OI6dde/jbV7EoTMpUcxtYl5Po=
+github.com/KirCute/ftpserverlib-pasvportmap v1.25.0/go.mod h1:v0NgMtKDDi/6CM6r4P+daCljCW3eO9yS+Z+pZDTKo1E=
+github.com/KirCute/sftpd-alist v0.0.8 h1:iMJZmQFNLGnUCDt4NT6+vBm1B+MlrPgK2OhdoBS9Qc0=
+github.com/KirCute/sftpd-alist v0.0.8/go.mod h1:pPFzr6GrKqXvFXLr46ZpoqmtSpwH8DKTYloSp/ybzKQ=
 github.com/Max-Sum/base32768 v0.0.0-20230304063302-18e6ce5945fd h1:nzE1YQBdx1bq9IlZinHa+HVffy+NmVRoKr+wHN8fpLE=
 github.com/Max-Sum/base32768 v0.0.0-20230304063302-18e6ce5945fd/go.mod h1:C8yoIfvESpM3GD07OCHU7fqI7lhwyZ2Td1rbNbTAhnc=
 github.com/RoaringBitmap/roaring v1.9.3 h1:t4EbC5qQwnisr5PrP9nt0IRhRTb9gMUgQF4t4S2OByM=
@@ -499,8 +499,6 @@ github.com/stretchr/testify v1.10.0 h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOf
 github.com/stretchr/testify v1.10.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/t3rm1n4l/go-mega v0.0.0-20240219080617-d494b6a8ace7 h1:Jtcrb09q0AVWe3BGe8qtuuGxNSHWGkTWr43kHTJ+CpA=
 github.com/t3rm1n4l/go-mega v0.0.0-20240219080617-d494b6a8ace7/go.mod h1:suDIky6yrK07NnaBadCB4sS0CqFOvUK91lH7CR+JlDA=
-github.com/taruti/binp v0.0.0-20160923074924-983014bd3f70 h1:Qup51sLZ9fzeLE5e2OOEAgi7c5L5YT84jHLHzSHSkwg=
-github.com/taruti/binp v0.0.0-20160923074924-983014bd3f70/go.mod h1:fPB4mo0AsEbIk6aGZu//GxxKWvahFds65YeY0mUlyPY=
 github.com/taruti/bytepool v0.0.0-20160310082835-5e3a9ea56543 h1:6Y51mutOvRGRx6KqyMNo//xk8B8o6zW9/RVmy1VamOs=
 github.com/taruti/bytepool v0.0.0-20160310082835-5e3a9ea56543/go.mod h1:jpwqYA8KUVEvSUJHkCXsnBRJCSKP1BMa81QZ6kvRpow=
 github.com/tklauser/go-sysconf v0.3.12/go.mod h1:Ho14jnntGE1fpdOqQEEaiKRpvIavV0hSfmBq8nJbHYI=
