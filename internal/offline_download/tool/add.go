@@ -29,7 +29,7 @@ type AddURLArgs struct {
 	DeletePolicy DeletePolicy
 }
 
-func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskInfoWithCreator, error) {
+func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskExtensionInfo, error) {
 	// get tool
 	tool, err := Tools.Get(args.Tool)
 	if err != nil {
@@ -81,7 +81,7 @@ func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskInfoWithCreator, er
 
 	taskCreator, _ := ctx.Value("user").(*model.User) // taskCreator is nil when convert failed
 	t := &DownloadTask{
-		TaskWithCreator: task.TaskWithCreator{
+		TaskExtension: task.TaskExtension{
 			Creator: taskCreator,
 		},
 		Url:          args.URL,

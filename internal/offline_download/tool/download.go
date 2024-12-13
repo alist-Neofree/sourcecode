@@ -14,7 +14,7 @@ import (
 )
 
 type DownloadTask struct {
-	task.TaskWithCreator
+	task.TaskExtension
 	Url               string       `json:"url"`
 	DstDirPath        string       `json:"dst_dir_path"`
 	TempDir           string       `json:"temp_dir"`
@@ -28,6 +28,9 @@ type DownloadTask struct {
 }
 
 func (t *DownloadTask) Run() error {
+	t.ClearEndTime()
+	t.SetStartTime(time.Now())
+	defer func() { t.SetEndTime(time.Now()) }()
 	if t.tool == nil {
 		tool, err := Tools.Get(t.Toolname)
 		if err != nil {
@@ -131,6 +134,7 @@ func (t *DownloadTask) Update() (bool, error) {
 	}
 	t.callStatusRetried = 0
 	t.SetProgress(info.Progress)
+	t.SetTotalBytes(info.TotalBytes)
 	t.Status = fmt.Sprintf("[%s]: %s", t.tool.Name(), info.Status)
 	if info.NewGID != "" {
 		log.Debugf("followen by: %+v", info.NewGID)
@@ -171,16 +175,18 @@ func (t *DownloadTask) Complete() error {
 	// upload files
 	for i := range files {
 		file := files[i]
-		TransferTaskManager.Add(&TransferTask{
-			TaskWithCreator: task.TaskWithCreator{
-				Creator: t.Creator,
+		tsk := &TransferTask{
+			TaskExtension: task.TaskExtension{
+				Creator: t.GetCreator(),
 			},
 			file:         file,
 			DstDirPath:   t.DstDirPath,
 			TempDir:      t.TempDir,
 			DeletePolicy: t.DeletePolicy,
 			FileDir:      file.Path,
-		})
+		}
+		tsk.SetTotalBytes(file.Size)
+		TransferTaskManager.Add(tsk)
 	}
 	return nil
 }
