@@ -80,6 +80,9 @@ outer:
 	if t.tool.Name() == "pikpak" {
 		return nil
 	}
+	if t.tool.Name() == "thunder" {
+		return nil
+	}
 	if t.tool.Name() == "115 Cloud" {
 		// hack for 115
 		<-time.After(time.Second * 1)
@@ -155,6 +158,9 @@ func (t *DownloadTask) Complete() error {
 		err   error
 	)
 	if t.tool.Name() == "pikpak" {
+		return nil
+	}
+	if t.tool.Name() == "thunder" {
 		return nil
 	}
 	if t.tool.Name() == "115 Cloud" {

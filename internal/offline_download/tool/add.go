@@ -77,6 +77,10 @@ func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskInfoWithCreator, er
 		tempDir = args.DstDirPath
 		// 防止将下载好的文件删除
 		deletePolicy = DeleteNever
+	case "thunder":
+		tempDir = args.DstDirPath
+		// 防止将下载好的文件删除
+		deletePolicy = DeleteNever
 	}
 
 	taskCreator, _ := ctx.Value("user").(*model.User) // taskCreator is nil when convert failed
