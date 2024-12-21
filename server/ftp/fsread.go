@@ -25,29 +25,29 @@ type FileDownloadProxy struct {
 	closers *utils.Closers
 }
 
-func OpenDownload(ctx context.Context, path string) (*FileDownloadProxy, error) {
+func OpenDownload(ctx context.Context, reqPath string) (*FileDownloadProxy, error) {
 	user := ctx.Value("user").(*model.User)
-	meta, err := op.GetNearestMeta(path)
+	meta, err := op.GetNearestMeta(reqPath)
 	if err != nil {
 		if !errors.Is(errors.Cause(err), errs.MetaNotFound) {
 			return nil, err
 		}
 	}
 	ctx = context.WithValue(ctx, "meta", meta)
-	if !common.CanAccess(user, meta, path, ctx.Value("meta_pass").(string)) {
+	if !common.CanAccess(user, meta, reqPath, ctx.Value("meta_pass").(string)) {
 		return nil, errs.PermissionDenied
 	}
 
 	// directly use proxy
 	header := *(ctx.Value("proxy_header").(*http.Header))
-	link, obj, err := fs.Link(ctx, path, model.LinkArgs{
+	link, obj, err := fs.Link(ctx, reqPath, model.LinkArgs{
 		IP:     ctx.Value("client_ip").(string),
 		Header: header,
 	})
 	if err != nil {
 		return nil, err
 	}
-	storage, err := fs.GetStorage(path, &fs.GetStoragesArgs{})
+	storage, err := fs.GetStorage(reqPath, &fs.GetStoragesArgs{})
 	if err != nil {
 		return nil, err
 	}
