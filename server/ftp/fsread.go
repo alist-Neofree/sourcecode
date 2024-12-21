@@ -27,31 +27,27 @@ type FileDownloadProxy struct {
 
 func OpenDownload(ctx context.Context, path string) (*FileDownloadProxy, error) {
 	user := ctx.Value("user").(*model.User)
-	reqPath, err := user.JoinPath(path)
-	if err != nil {
-		return nil, err
-	}
-	meta, err := op.GetNearestMeta(reqPath)
+	meta, err := op.GetNearestMeta(path)
 	if err != nil {
 		if !errors.Is(errors.Cause(err), errs.MetaNotFound) {
 			return nil, err
 		}
 	}
 	ctx = context.WithValue(ctx, "meta", meta)
-	if !common.CanAccess(user, meta, reqPath, ctx.Value("meta_pass").(string)) {
+	if !common.CanAccess(user, meta, path, ctx.Value("meta_pass").(string)) {
 		return nil, errs.PermissionDenied
 	}
 
 	// directly use proxy
 	header := *(ctx.Value("proxy_header").(*http.Header))
-	link, obj, err := fs.Link(ctx, reqPath, model.LinkArgs{
+	link, obj, err := fs.Link(ctx, path, model.LinkArgs{
 		IP:     ctx.Value("client_ip").(string),
 		Header: header,
 	})
 	if err != nil {
 		return nil, err
 	}
-	storage, err := fs.GetStorage(reqPath, &fs.GetStoragesArgs{})
+	storage, err := fs.GetStorage(path, &fs.GetStoragesArgs{})
 	if err != nil {
 		return nil, err
 	}
