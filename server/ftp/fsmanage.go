@@ -64,7 +64,11 @@ func Rename(ctx context.Context, oldPath, newPath string) error {
 		if !user.CanFTPManage() || !user.CanMove() || (srcBase != dstBase && !user.CanRename()) {
 			return errs.PermissionDenied
 		}
-		if err := fs.Move(ctx, srcPath, dstDir); err != nil {
+		if err = fs.Move(ctx, srcPath, dstDir); err != nil {
+			if !errors.Is(err, errs.MoveBetweenTwoStorages) || srcBase != dstBase {
+				return err
+			}
+			_, err = fs.Copy(ctx, srcPath, dstDir)
 			return err
 		}
 		if srcBase != dstBase {
