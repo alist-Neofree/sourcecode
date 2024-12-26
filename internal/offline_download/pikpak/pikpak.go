@@ -17,7 +17,7 @@ type PikPak struct {
 }
 
 func (p *PikPak) Name() string {
-	return "pikpak"
+	return "PikPak"
 }
 
 func (p *PikPak) Items() []model.SettingItem {

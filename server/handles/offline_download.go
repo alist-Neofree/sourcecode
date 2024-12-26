@@ -95,7 +95,7 @@ func SetTransmission(c *gin.Context) {
 		common.ErrorResp(c, err, 500)
 		return
 	}
-	_tool, err := tool.Tools.Get("transmission")
+	_tool, err := tool.Tools.Get("Transmission")
 	if err != nil {
 		common.ErrorResp(c, err, 500)
 		return
@@ -183,7 +183,7 @@ func SetPikPak(c *gin.Context) {
 		common.ErrorResp(c, err, 500)
 		return
 	}
-	_tool, err := tool.Tools.Get("pikpak")
+	_tool, err := tool.Tools.Get("PikPak")
 	if err != nil {
 		common.ErrorResp(c, err, 500)
 		return
@@ -227,7 +227,7 @@ func SetThunder(c *gin.Context) {
 		common.ErrorResp(c, err, 500)
 		return
 	}
-	_tool, err := tool.Tools.Get("thunder")
+	_tool, err := tool.Tools.Get("Thunder")
 	if err != nil {
 		common.ErrorResp(c, err, 500)
 		return

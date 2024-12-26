@@ -18,7 +18,7 @@ type Thunder struct {
 }
 
 func (t *Thunder) Name() string {
-	return "thunder"
+	return "Thunder"
 }
 
 func (t *Thunder) Items() []model.SettingItem {
