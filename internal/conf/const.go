@@ -58,6 +58,9 @@ const (
 	TransmissionUri      = "transmission_uri"
 	TransmissionSeedtime = "transmission_seedtime"
 
+	// 115
+	Pan115TempDir = "115_temp_dir"
+
 	// thunder
 	ThunderTempDir = "thunder_temp_dir"
 

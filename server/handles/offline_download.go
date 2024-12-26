@@ -1,6 +1,7 @@
 package handles
 
 import (
+	_115 "github.com/alist-org/alist/v3/drivers/115"
 	"github.com/alist-org/alist/v3/drivers/thunder"
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/model"
@@ -94,6 +95,50 @@ func SetTransmission(c *gin.Context) {
 		return
 	}
 	_tool, err := tool.Tools.Get("transmission")
+	if err != nil {
+		common.ErrorResp(c, err, 500)
+		return
+	}
+	if _, err := _tool.Init(); err != nil {
+		common.ErrorResp(c, err, 500)
+		return
+	}
+	common.SuccessResp(c, "ok")
+}
+
+type Set115Req struct {
+	TempDir string `json:"temp_dir" form:"temp_dir"`
+}
+
+func Set115(c *gin.Context) {
+	var req Set115Req
+	if err := c.ShouldBind(&req); err != nil {
+		common.ErrorResp(c, err, 400)
+		return
+	}
+	if req.TempDir != "" {
+		storage, _, err := op.GetStorageAndActualPath(req.TempDir)
+		if err != nil {
+			common.ErrorStrResp(c, "storage does not exists", 400)
+			return
+		}
+		if storage.Config().CheckStatus && storage.GetStorage().Status != op.WORK {
+			common.ErrorStrResp(c, "storage not init: "+storage.GetStorage().Status, 400)
+			return
+		}
+		if _, ok := storage.(*_115.Pan115); !ok {
+			common.ErrorStrResp(c, "unsupported storage driver for offline download, only 115 Cloud is supported", 400)
+			return
+		}
+	}
+	items := []model.SettingItem{
+		{Key: conf.Pan115TempDir, Value: req.TempDir, Type: conf.TypeString, Group: model.OFFLINE_DOWNLOAD, Flag: model.PRIVATE},
+	}
+	if err := op.SaveSettingItems(items); err != nil {
+		common.ErrorResp(c, err, 500)
+		return
+	}
+	_tool, err := tool.Tools.Get("115 Cloud")
 	if err != nil {
 		common.ErrorResp(c, err, 500)
 		return
