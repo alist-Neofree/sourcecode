@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	_115 "github.com/alist-org/alist/v3/drivers/115"
+	"github.com/alist-org/alist/v3/drivers/pikpak"
 	"github.com/alist-org/alist/v3/drivers/thunder"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/setting"
@@ -71,20 +72,21 @@ func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskExtensionInfo, erro
 	tempDir := filepath.Join(conf.Conf.TempDir, args.Tool, uid)
 	deletePolicy := args.DeletePolicy
 
+	// 如果当前 storage 是对应网盘，则直接下载到目标路径，无需转存
 	switch args.Tool {
 	case "115 Cloud":
-		// 如果当前 storage 是115网盘，则直接下载到目标路径，无需转存
 		if _, ok := storage.(*_115.Pan115); ok {
 			tempDir = args.DstDirPath
 		} else {
 			tempDir = filepath.Join(setting.GetStr(conf.Pan115TempDir), uid)
 		}
 	case "pikpak":
-		tempDir = args.DstDirPath
-		// 防止将下载好的文件删除
-		deletePolicy = DeleteNever
+		if _, ok := storage.(*pikpak.PikPak); ok {
+			tempDir = args.DstDirPath
+		} else {
+			tempDir = filepath.Join(setting.GetStr(conf.PikPakTempDir), uid)
+		}
 	case "thunder":
-		// 如果当前 storage 是迅雷云盘，则直接下载到目标路径，无需转存
 		if _, ok := storage.(*thunder.Thunder); ok {
 			tempDir = args.DstDirPath
 		} else {

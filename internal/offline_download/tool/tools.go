@@ -25,7 +25,9 @@ func (t ToolsManager) Add(tool Tool) {
 func (t ToolsManager) Names() []string {
 	names := make([]string, 0, len(t))
 	for name := range t {
-		names = append(names, name)
+		if tool, err := t.Get(name); err == nil && tool.IsReady() {
+			names = append(names, name)
+		}
 	}
 	return names
 }

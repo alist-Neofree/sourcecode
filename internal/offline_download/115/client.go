@@ -3,6 +3,8 @@ package _115
 import (
 	"context"
 	"fmt"
+	"github.com/alist-org/alist/v3/internal/conf"
+	"github.com/alist-org/alist/v3/internal/setting"
 
 	"github.com/alist-org/alist/v3/drivers/115"
 	"github.com/alist-org/alist/v3/internal/errs"
@@ -33,6 +35,17 @@ func (p *Cloud115) Init() (string, error) {
 }
 
 func (p *Cloud115) IsReady() bool {
+	tempDir := setting.GetStr(conf.Pan115TempDir)
+	if tempDir == "" {
+		return false
+	}
+	storage, _, err := op.GetStorageAndActualPath(tempDir)
+	if err != nil {
+		return false
+	}
+	if _, ok := storage.(*_115.Pan115); !ok {
+		return false
+	}
 	return true
 }
 
