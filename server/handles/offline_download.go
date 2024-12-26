@@ -1,6 +1,7 @@
 package handles
 
 import (
+	"github.com/alist-org/alist/v3/drivers/thunder"
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/offline_download/tool"
@@ -73,11 +74,6 @@ func SetQbittorrent(c *gin.Context) {
 	common.SuccessResp(c, "ok")
 }
 
-func OfflineDownloadTools(c *gin.Context) {
-	tools := tool.Tools.Names()
-	common.SuccessResp(c, tools)
-}
-
 type SetTransmissionReq struct {
 	Uri      string `json:"uri" form:"uri"`
 	Seedtime string `json:"seedtime" form:"seedtime"`
@@ -107,6 +103,55 @@ func SetTransmission(c *gin.Context) {
 		return
 	}
 	common.SuccessResp(c, "ok")
+}
+
+type SetThunderReq struct {
+	TempDir string `json:"temp_dir" form:"temp_dir"`
+}
+
+func SetThunder(c *gin.Context) {
+	var req SetThunderReq
+	if err := c.ShouldBind(&req); err != nil {
+		common.ErrorResp(c, err, 400)
+		return
+	}
+	if req.TempDir != "" {
+		storage, _, err := op.GetStorageAndActualPath(req.TempDir)
+		if err != nil {
+			common.ErrorStrResp(c, "storage does not exists", 400)
+			return
+		}
+		if storage.Config().CheckStatus && storage.GetStorage().Status != op.WORK {
+			common.ErrorStrResp(c, "storage not init: "+storage.GetStorage().Status, 400)
+			return
+		}
+		if _, ok := storage.(*thunder.Thunder); !ok {
+			common.ErrorStrResp(c, "unsupported storage driver for offline download, only Thunder is supported", 400)
+			return
+		}
+	}
+	items := []model.SettingItem{
+		{Key: conf.ThunderTempDir, Value: req.TempDir, Type: conf.TypeString, Group: model.OFFLINE_DOWNLOAD, Flag: model.PRIVATE},
+	}
+	if err := op.SaveSettingItems(items); err != nil {
+		common.ErrorResp(c, err, 500)
+		return
+	}
+	_tool, err := tool.Tools.Get("thunder")
+	if err != nil {
+		common.ErrorResp(c, err, 500)
+		return
+	}
+	if _, err := _tool.Init(); err != nil {
+		common.ErrorResp(c, err, 500)
+		return
+	}
+	common.SuccessResp(c, "ok")
+}
+
+func OfflineDownloadTools(c *gin.Context) {
+	tools := tool.Tools.Names()
+	common.SuccessResp(c, tools)
 }
 
 type AddOfflineDownloadReq struct {

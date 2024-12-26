@@ -58,6 +58,9 @@ const (
 	TransmissionUri      = "transmission_uri"
 	TransmissionSeedtime = "transmission_seedtime"
 
+	// thunder
+	ThunderTempDir = "thunder_temp_dir"
+
 	// single
 	Token         = "token"
 	IndexProgress = "index_progress"
