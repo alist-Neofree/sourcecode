@@ -3,6 +3,8 @@ package pikpak
 import (
 	"context"
 	"fmt"
+	"github.com/alist-org/alist/v3/internal/conf"
+	"github.com/alist-org/alist/v3/internal/setting"
 	"strconv"
 
 	"github.com/alist-org/alist/v3/drivers/pikpak"
@@ -34,6 +36,17 @@ func (p *PikPak) Init() (string, error) {
 }
 
 func (p *PikPak) IsReady() bool {
+	tempDir := setting.GetStr(conf.PikPakTempDir)
+	if tempDir == "" {
+		return false
+	}
+	storage, _, err := op.GetStorageAndActualPath(tempDir)
+	if err != nil {
+		return false
+	}
+	if _, ok := storage.(*pikpak.PikPak); !ok {
+		return false
+	}
 	return true
 }
 

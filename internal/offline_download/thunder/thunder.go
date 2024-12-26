@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/alist-org/alist/v3/internal/conf"
+	"github.com/alist-org/alist/v3/internal/setting"
 	"strconv"
 
 	"github.com/alist-org/alist/v3/drivers/thunder"
@@ -35,6 +37,17 @@ func (t *Thunder) Init() (string, error) {
 }
 
 func (t *Thunder) IsReady() bool {
+	tempDir := setting.GetStr(conf.ThunderTempDir)
+	if tempDir == "" {
+		return false
+	}
+	storage, _, err := op.GetStorageAndActualPath(tempDir)
+	if err != nil {
+		return false
+	}
+	if _, ok := storage.(*thunder.Thunder); !ok {
+		return false
+	}
 	return true
 }
 
