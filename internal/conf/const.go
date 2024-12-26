@@ -61,6 +61,9 @@ const (
 	// 115
 	Pan115TempDir = "115_temp_dir"
 
+	// pikpak
+	PikPakTempDir = "pikpak_temp_dir"
+
 	// thunder
 	ThunderTempDir = "thunder_temp_dir"
 

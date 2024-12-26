@@ -133,6 +133,7 @@ func admin(g *gin.RouterGroup) {
 	setting.POST("/set_qbit", handles.SetQbittorrent)
 	setting.POST("/set_transmission", handles.SetTransmission)
 	setting.POST("/set_115", handles.Set115)
+	setting.POST("/set_pikpak", handles.SetPikPak)
 	setting.POST("/set_thunder", handles.SetThunder)
 
 	// retain /admin/task API to ensure compatibility with legacy automation scripts
