@@ -48,3 +48,52 @@ type ErrResp struct {
 	DocumentationURL string `json:"documentation_url"`
 	Status           string `json:"status"`
 }
+
+type TreeObjReq struct {
+	Path string      `json:"path"`
+	Mode string      `json:"mode"`
+	Type string      `json:"type"`
+	Sha  interface{} `json:"sha"`
+	Size int64       `json:"size" required:"false"`
+}
+
+func (o *TreeObjReq) toModelObj() *model.Object {
+	return &model.Object{
+		Name:     o.Path,
+		Size:     o.Size,
+		Modified: time.Unix(0, 0),
+		IsFolder: o.Type == "tree",
+	}
+}
+
+type TreeObjResp struct {
+	TreeObjReq
+	Size int64  `json:"size" required:"false"`
+	URL  string `json:"url"`
+}
+
+type TreeResp struct {
+	Sha       string        `json:"sha"`
+	URL       string        `json:"url"`
+	Trees     []TreeObjResp `json:"tree"`
+	Truncated bool          `json:"truncated"`
+}
+
+type TreeReq struct {
+	BaseTree string        `json:"base_tree"`
+	Trees    []interface{} `json:"tree"`
+}
+
+type CommitResp struct {
+	Sha string `json:"sha"`
+}
+
+type BranchResp struct {
+	Name   string     `json:"name"`
+	Commit CommitResp `json:"commit"`
+}
+
+type UpdateRefReq struct {
+	Sha   string `json:"sha"`
+	Force bool   `json:"force"`
+}

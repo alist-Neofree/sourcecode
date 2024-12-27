@@ -15,6 +15,7 @@ import (
 	stdpath "path"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 )
 
@@ -25,6 +26,11 @@ type Github struct {
 	mkdirMsgTmpl  *template.Template
 	deleteMsgTmpl *template.Template
 	putMsgTmpl    *template.Template
+	renameMsgTmpl *template.Template
+	copyMsgTmpl   *template.Template
+	moveMsgTmpl   *template.Template
+	isOnBranch    bool
+	commitMutex   sync.Mutex
 }
 
 func (d *Github) Config() driver.Config {
@@ -62,10 +68,29 @@ func (d *Github) Init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	d.renameMsgTmpl, err = template.New("renameCommitMsgTemplate").Parse(d.RenameCommitMsg)
+	if err != nil {
+		return err
+	}
+	d.copyMsgTmpl, err = template.New("copyCommitMsgTemplate").Parse(d.CopyCommitMsg)
+	if err != nil {
+		return err
+	}
+	d.moveMsgTmpl, err = template.New("moveCommitMsgTemplate").Parse(d.MoveCommitMsg)
+	if err != nil {
+		return err
+	}
 	d.client = base.NewRestyClient().
 		SetHeader("Accept", "application/vnd.github.object+json").
 		SetHeader("Authorization", "Bearer "+d.Token).
 		SetHeader("X-GitHub-Api-Version", "2022-11-28")
+	if d.Ref == "" {
+		// TODO Get default branch
+		d.isOnBranch = true
+	} else {
+		_, err = d.getBranchHead()
+		d.isOnBranch = err == nil
+	}
 	return nil
 }
 
@@ -81,13 +106,30 @@ func (d *Github) List(ctx context.Context, dir model.Obj, args model.ListArgs) (
 	if obj.Entries == nil {
 		return nil, errs.NotFolder
 	}
-	ret := make([]model.Obj, 0, len(obj.Entries))
-	for _, entry := range obj.Entries {
-		if entry.Name != ".gitkeep" {
-			ret = append(ret, entry.toModelObj())
+	if len(obj.Entries) >= 1000 {
+		tree, err := d.getTree(obj.Sha)
+		if err != nil {
+			return nil, err
 		}
+		if tree.Truncated {
+			return nil, fmt.Errorf("tree %s is truncated", dir.GetPath())
+		}
+		ret := make([]model.Obj, 0, len(tree.Trees))
+		for _, t := range tree.Trees {
+			if t.Path != ".gitkeep" {
+				ret = append(ret, t.toModelObj())
+			}
+		}
+		return ret, nil
+	} else {
+		ret := make([]model.Obj, 0, len(obj.Entries))
+		for _, entry := range obj.Entries {
+			if entry.Name != ".gitkeep" {
+				ret = append(ret, entry.toModelObj())
+			}
+		}
+		return ret, nil
 	}
-	return ret, nil
 }
 
 func (d *Github) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
@@ -104,6 +146,9 @@ func (d *Github) Link(ctx context.Context, file model.Obj, args model.LinkArgs) 
 }
 
 func (d *Github) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
+	if !d.isOnBranch {
+		return errors.New("cannot write to non-branch reference")
+	}
 	parent, err := d.get(parentDir.GetPath())
 	if err != nil {
 		return err
@@ -136,19 +181,326 @@ func (d *Github) MakeDir(ctx context.Context, parentDir model.Obj, dirName strin
 	return err
 }
 
-func (d *Github) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
-	return nil, errs.NotSupport
+func (d *Github) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
+	if !d.isOnBranch {
+		return errors.New("cannot write to non-branch reference")
+	}
+	if strings.HasPrefix(dstDir.GetPath(), srcObj.GetPath()) {
+		return errors.New("cannot move parent dir to child")
+	}
+
+	var rootSha string
+	if strings.HasPrefix(dstDir.GetPath(), stdpath.Dir(srcObj.GetPath())) { // /aa/1 -> /aa/bb/
+		dstOldSha, dstNewSha, ancestorOldSha, srcParentTree, err := d.copyWithoutRenewTree(srcObj, dstDir)
+		if err != nil {
+			return err
+		}
+
+		srcParentPath := stdpath.Dir(srcObj.GetPath())
+		dstRest := dstDir.GetPath()[len(srcParentPath):]
+		if dstRest[0] == '/' {
+			dstRest = dstRest[1:]
+		}
+		dstNextName, _, _ := strings.Cut(dstRest, "/")
+		dstNextPath := stdpath.Join(srcParentPath, dstNextName)
+		dstNextTreeSha, err := d.renewParentTrees(dstDir.GetPath(), dstOldSha, dstNewSha, dstNextPath)
+		if err != nil {
+			return err
+		}
+		var delSrc, dstNextTree *TreeObjReq = nil, nil
+		for _, t := range srcParentTree.Trees {
+			if t.Path == dstNextName {
+				dstNextTree = &t.TreeObjReq
+				dstNextTree.Sha = dstNextTreeSha
+			}
+			if t.Path == srcObj.GetName() {
+				delSrc = &t.TreeObjReq
+				delSrc.Sha = nil
+			}
+			if delSrc != nil && dstNextTree != nil {
+				break
+			}
+		}
+		if delSrc == nil || dstNextTree == nil {
+			return errs.ObjectNotFound
+		}
+		ancestorNewSha, err := d.newTree(ancestorOldSha, []interface{}{*delSrc, *dstNextTree})
+		if err != nil {
+			return err
+		}
+		rootSha, err = d.renewParentTrees(srcParentPath, ancestorOldSha, ancestorNewSha, "/")
+		if err != nil {
+			return err
+		}
+	} else if strings.HasPrefix(srcObj.GetPath(), dstDir.GetPath()) { // /aa/bb/1 -> /aa/
+		srcParentPath := stdpath.Dir(srcObj.GetPath())
+		srcParentTree, srcParentOldSha, err := d.getTreeDirectly(srcParentPath)
+		if err != nil {
+			return err
+		}
+		var src *TreeObjReq = nil
+		for _, t := range srcParentTree.Trees {
+			if t.Path == srcObj.GetName() {
+				if t.Type == "commit" {
+					return errors.New("cannot move a submodule")
+				}
+				src = &t.TreeObjReq
+				break
+			}
+		}
+		if src == nil {
+			return errs.ObjectNotFound
+		}
+
+		delSrc := *src
+		delSrc.Sha = nil
+		delSrcTree := make([]interface{}, 0, 2)
+		delSrcTree = append(delSrcTree, delSrc)
+		if len(srcParentTree.Trees) == 1 {
+			delSrcTree = append(delSrcTree, map[string]string{
+				"path":    ".gitkeep",
+				"mode":    "100644",
+				"type":    "blob",
+				"content": "",
+			})
+		}
+		srcParentNewSha, err := d.newTree(srcParentOldSha, delSrcTree)
+		if err != nil {
+			return err
+		}
+		srcRest := srcObj.GetPath()[len(dstDir.GetPath()):]
+		if srcRest[0] == '/' {
+			srcRest = srcRest[1:]
+		}
+		srcNextName, _, ok := strings.Cut(srcRest, "/")
+		if !ok { // /aa/1 -> /aa/
+			return errors.New("cannot move in place")
+		}
+		srcNextPath := stdpath.Join(dstDir.GetPath(), srcNextName)
+		srcNextTreeSha, err := d.renewParentTrees(srcParentPath, srcParentOldSha, srcParentNewSha, srcNextPath)
+		if err != nil {
+			return err
+		}
+
+		ancestorTree, ancestorOldSha, err := d.getTreeDirectly(dstDir.GetPath())
+		if err != nil {
+			return err
+		}
+		var srcNextTree *TreeObjReq = nil
+		for _, t := range ancestorTree.Trees {
+			if t.Path == srcNextName {
+				srcNextTree = &t.TreeObjReq
+				srcNextTree.Sha = srcNextTreeSha
+				break
+			}
+		}
+		if srcNextTree == nil {
+			return errs.ObjectNotFound
+		}
+		ancestorNewSha, err := d.newTree(ancestorOldSha, []interface{}{*srcNextTree, *src})
+		if err != nil {
+			return err
+		}
+		rootSha, err = d.renewParentTrees(dstDir.GetPath(), ancestorOldSha, ancestorNewSha, "/")
+		if err != nil {
+			return err
+		}
+	} else { // /aa/1 -> /bb/
+		// do copy
+		dstOldSha, dstNewSha, srcParentOldSha, srcParentTree, err := d.copyWithoutRenewTree(srcObj, dstDir)
+		if err != nil {
+			return err
+		}
+
+		// delete src object and create new tree
+		var srcNewTree *TreeObjReq = nil
+		for _, t := range srcParentTree.Trees {
+			if t.Path == srcObj.GetName() {
+				srcNewTree = &t.TreeObjReq
+				srcNewTree.Sha = nil
+				break
+			}
+		}
+		if srcNewTree == nil {
+			return errs.ObjectNotFound
+		}
+		delSrcTree := make([]interface{}, 0, 2)
+		delSrcTree = append(delSrcTree, *srcNewTree)
+		if len(srcParentTree.Trees) == 1 {
+			delSrcTree = append(delSrcTree, map[string]string{
+				"path":    ".gitkeep",
+				"mode":    "100644",
+				"type":    "blob",
+				"content": "",
+			})
+		}
+		srcParentNewSha, err := d.newTree(srcParentOldSha, delSrcTree)
+		if err != nil {
+			return err
+		}
+
+		// renew but the common ancestor of srcPath and dstPath
+		ancestor, srcChildName, dstChildName, _, _ := getPathCommonAncestor(srcObj.GetPath(), dstDir.GetPath())
+		dstNextTreeSha, err := d.renewParentTrees(dstDir.GetPath(), dstOldSha, dstNewSha, stdpath.Join(ancestor, dstChildName))
+		if err != nil {
+			return err
+		}
+		srcNextTreeSha, err := d.renewParentTrees(stdpath.Dir(srcObj.GetPath()), srcParentOldSha, srcParentNewSha, stdpath.Join(ancestor, srcChildName))
+		if err != nil {
+			return err
+		}
+
+		// renew the tree of the last common ancestor
+		ancestorTree, ancestorOldSha, err := d.getTreeDirectly(ancestor)
+		if err != nil {
+			return err
+		}
+		newTree := make([]interface{}, 2)
+		srcBind := false
+		dstBind := false
+		for _, t := range ancestorTree.Trees {
+			if t.Path == srcChildName {
+				t.Sha = srcNextTreeSha
+				newTree[0] = t.TreeObjReq
+				srcBind = true
+			}
+			if t.Path == dstChildName {
+				t.Sha = dstNextTreeSha
+				newTree[1] = t.TreeObjReq
+				dstBind = true
+			}
+			if srcBind && dstBind {
+				break
+			}
+		}
+		if !srcBind || !dstBind {
+			return errs.ObjectNotFound
+		}
+		ancestorNewSha, err := d.newTree(ancestorOldSha, newTree)
+		if err != nil {
+			return err
+		}
+		// renew until root
+		rootSha, err = d.renewParentTrees(ancestor, ancestorOldSha, ancestorNewSha, "/")
+		if err != nil {
+			return err
+		}
+	}
+
+	// commit
+	message, err := getMessage(d.moveMsgTmpl, &MessageTemplateVars{
+		UserName:   ctx.Value("user").(*model.User).Username,
+		ObjName:    srcObj.GetName(),
+		ObjPath:    srcObj.GetPath(),
+		ParentName: stdpath.Base(stdpath.Dir(srcObj.GetPath())),
+		ParentPath: stdpath.Dir(srcObj.GetPath()),
+		TargetName: stdpath.Base(dstDir.GetPath()),
+		TargetPath: dstDir.GetPath(),
+	}, "move")
+	if err != nil {
+		return err
+	}
+	commit, err := d.commit(message, rootSha)
+	if err != nil {
+		return err
+	}
+	return d.updateHead(commit)
 }
 
-func (d *Github) Rename(ctx context.Context, srcObj model.Obj, newName string) (model.Obj, error) {
-	return nil, errs.NotSupport
+func (d *Github) Rename(ctx context.Context, srcObj model.Obj, newName string) error {
+	if !d.isOnBranch {
+		return errors.New("cannot write to non-branch reference")
+	}
+	parentDir := stdpath.Dir(srcObj.GetPath())
+	tree, _, err := d.getTreeDirectly(parentDir)
+	if err != nil {
+		return err
+	}
+	newTree := make([]interface{}, 2)
+	operated := false
+	for _, t := range tree.Trees {
+		if t.Path == srcObj.GetName() {
+			if t.Type == "commit" {
+				return errors.New("cannot rename a submodule")
+			}
+			delCopy := t.TreeObjReq
+			delCopy.Sha = nil
+			newTree[0] = delCopy
+			t.Path = newName
+			newTree[1] = t.TreeObjReq
+			operated = true
+			break
+		}
+	}
+	if !operated {
+		return errs.ObjectNotFound
+	}
+	newSha, err := d.newTree(tree.Sha, newTree)
+	if err != nil {
+		return err
+	}
+	rootSha, err := d.renewParentTrees(parentDir, tree.Sha, newSha, "/")
+	if err != nil {
+		return err
+	}
+	message, err := getMessage(d.renameMsgTmpl, &MessageTemplateVars{
+		UserName:   ctx.Value("user").(*model.User).Username,
+		ObjName:    srcObj.GetName(),
+		ObjPath:    srcObj.GetPath(),
+		ParentName: stdpath.Base(parentDir),
+		ParentPath: parentDir,
+		TargetName: newName,
+		TargetPath: parentDir,
+	}, "rename")
+	if err != nil {
+		return err
+	}
+	commit, err := d.commit(message, rootSha)
+	if err != nil {
+		return err
+	}
+	return d.updateHead(commit)
 }
 
-func (d *Github) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
-	return nil, errs.NotSupport
+func (d *Github) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
+	if !d.isOnBranch {
+		return errors.New("cannot write to non-branch reference")
+	}
+	if strings.HasPrefix(dstDir.GetPath(), srcObj.GetPath()) {
+		return errors.New("cannot copy parent dir to child")
+	}
+
+	dstSha, newSha, _, _, err := d.copyWithoutRenewTree(srcObj, dstDir)
+	if err != nil {
+		return err
+	}
+	rootSha, err := d.renewParentTrees(dstDir.GetPath(), dstSha, newSha, "/")
+	if err != nil {
+		return err
+	}
+	message, err := getMessage(d.copyMsgTmpl, &MessageTemplateVars{
+		UserName:   ctx.Value("user").(*model.User).Username,
+		ObjName:    srcObj.GetName(),
+		ObjPath:    srcObj.GetPath(),
+		ParentName: stdpath.Base(stdpath.Dir(srcObj.GetPath())),
+		ParentPath: stdpath.Dir(srcObj.GetPath()),
+		TargetName: stdpath.Base(dstDir.GetPath()),
+		TargetPath: dstDir.GetPath(),
+	}, "copy")
+	if err != nil {
+		return err
+	}
+	commit, err := d.commit(message, rootSha)
+	if err != nil {
+		return err
+	}
+	return d.updateHead(commit)
 }
 
 func (d *Github) Remove(ctx context.Context, obj model.Obj) error {
+	if !d.isOnBranch {
+		return errors.New("cannot write to non-branch reference")
+	}
 	parentDir := stdpath.Dir(obj.GetPath())
 	parent, err := d.get(parentDir)
 	if err != nil {
@@ -157,21 +509,6 @@ func (d *Github) Remove(ctx context.Context, obj model.Obj) error {
 	if parent.Entries == nil {
 		return errs.ObjectNotFound
 	}
-	sha := ""
-	objType := ""
-	for _, entry := range parent.Entries {
-		if entry.Name == obj.GetName() {
-			sha = entry.Sha
-			objType = entry.Type
-			break
-		}
-	}
-	if sha == "" {
-		return errs.ObjectNotFound
-	}
-	if objType == "submodule" {
-		return errors.New("cannot delete a submodule")
-	}
 	commitMessage, err := getMessage(d.deleteMsgTmpl, &MessageTemplateVars{
 		UserName:   ctx.Value("user").(*model.User).Username,
 		ObjName:    obj.GetName(),
@@ -179,22 +516,77 @@ func (d *Github) Remove(ctx context.Context, obj model.Obj) error {
 		ParentName: stdpath.Base(parentDir),
 		ParentPath: parentDir,
 	}, "remove")
-	if err != nil {
-		return err
-	}
-	if objType == "dir" {
-		return d.rmdir(obj.GetPath(), commitMessage)
-	}
-	// if deleted file is the only child of its parent, create .gitkeep to retain empty folder
-	if parentDir != "/" && len(parent.Entries) == 1 {
-		if err = d.createGitKeep(parentDir, commitMessage); err != nil {
+	if len(parent.Entries) >= 1000 {
+		tree, err := d.getTree(parent.Sha)
+		if err != nil {
 			return err
 		}
+		if tree.Truncated {
+			return fmt.Errorf("tree %s is truncated", parentDir)
+		}
+		var del *TreeObjReq = nil
+		for _, t := range tree.Trees {
+			if t.Path == obj.GetName() {
+				if t.Type == "commit" {
+					return errors.New("cannot remove a submodule")
+				}
+				del = &t.TreeObjReq
+				del.Sha = nil
+				break
+			}
+		}
+		if del == nil {
+			return errs.ObjectNotFound
+		}
+		newSha, err := d.newTree(parent.Sha, []interface{}{*del})
+		if err != nil {
+			return err
+		}
+		rootSha, err := d.renewParentTrees(parentDir, parent.Sha, newSha, "/")
+		if err != nil {
+			return err
+		}
+		commit, err := d.commit(commitMessage, rootSha)
+		if err != nil {
+			return err
+		}
+		return d.updateHead(commit)
+	} else {
+		sha := ""
+		objType := ""
+		for _, entry := range parent.Entries {
+			if entry.Name == obj.GetName() {
+				sha = entry.Sha
+				objType = entry.Type
+				break
+			}
+		}
+		if sha == "" {
+			return errs.ObjectNotFound
+		}
+		if objType == "submodule" {
+			return errors.New("cannot delete a submodule")
+		}
+		if err != nil {
+			return err
+		}
+		if objType == "dir" {
+			return d.rmdir(parentDir, parent.Sha, sha, commitMessage)
+		}
+		// if deleted file is the only child of its parent, create .gitkeep to retain empty folder
+		if parentDir != "/" && len(parent.Entries) == 1 {
+			if err = d.createGitKeep(parentDir, commitMessage); err != nil {
+				return err
+			}
+		}
+		return d.delete(obj.GetPath(), sha, commitMessage)
 	}
-	return d.delete(obj.GetPath(), sha, commitMessage)
 }
 
 func (d *Github) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
+	if !d.isOnBranch {
+		return nil, errors.New("cannot write to non-branch reference")
+	}
 	parent, err := d.get(dstDir.GetPath())
 	if err != nil {
 		return nil, err
@@ -203,10 +595,32 @@ func (d *Github) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		return nil, errs.NotFolder
 	}
 	uploadSha := ""
-	for _, entry := range parent.Entries {
-		if entry.Name == stream.GetName() {
-			uploadSha = entry.Sha
-			break
+	if len(parent.Entries) >= 1000 {
+		tree, err := d.getTree(parent.Sha)
+		if err != nil {
+			return nil, err
+		}
+		if tree.Truncated {
+			return nil, fmt.Errorf("tree %s is truncated", dstDir.GetPath())
+		}
+		for _, t := range tree.Trees {
+			if t.Path == stream.GetName() {
+				if t.Type == "commit" {
+					return nil, errors.New("cannot replace a submodule")
+				}
+				uploadSha = t.Sha.(string)
+				break
+			}
+		}
+	} else {
+		for _, entry := range parent.Entries {
+			if entry.Name == stream.GetName() {
+				if entry.Type == "submodule" {
+					return nil, errors.New("cannot replace a submodule")
+				}
+				uploadSha = entry.Sha
+				break
+			}
 		}
 	}
 	// if parent folder contains .gitkeep only, mark it and delete .gitkeep later
@@ -244,11 +658,7 @@ func (d *Github) getContentApiUrl(path string) string {
 }
 
 func (d *Github) get(path string) (*Object, error) {
-	req := d.client.R()
-	if d.Ref != "" {
-		req = req.SetQueryParam("ref", d.Ref)
-	}
-	res, err := req.Get(d.getContentApiUrl(path))
+	res, err := d.client.R().SetQueryParam("ref", d.Ref).Get(d.getContentApiUrl(path))
 	if err != nil {
 		return nil, err
 	}
@@ -264,9 +674,7 @@ func (d *Github) createGitKeep(path, message string) error {
 	body := map[string]interface{}{
 		"message": message,
 		"content": "",
-	}
-	if d.Ref != "" {
-		body["branch"] = d.Ref
+		"branch":  d.Ref,
 	}
 	d.addCommitterAndAuthor(&body)
 
@@ -284,15 +692,12 @@ func (d *Github) put(path, sha, message string, ctx context.Context, stream mode
 	beforeContent := strings.Builder{}
 	beforeContent.WriteString("{\"message\":\"")
 	beforeContent.WriteString(message)
+	beforeContent.WriteString("\",\"branch\":\"")
+	beforeContent.WriteString(d.Ref)
 	beforeContent.WriteString("\",")
 	if sha != "" {
 		beforeContent.WriteString("\"sha\":\"")
 		beforeContent.WriteString(sha)
-		beforeContent.WriteString("\",")
-	}
-	if d.Ref != "" {
-		beforeContent.WriteString("\"branch\":\"")
-		beforeContent.WriteString(d.Ref)
 		beforeContent.WriteString("\",")
 	}
 	if d.CommitterName != "" {
@@ -350,9 +755,7 @@ func (d *Github) delete(path, sha, message string) error {
 	body := map[string]interface{}{
 		"message": message,
 		"sha":     sha,
-	}
-	if d.Ref != "" {
-		body["branch"] = d.Ref
+		"branch":  d.Ref,
 	}
 	d.addCommitterAndAuthor(&body)
 	res, err := d.client.R().SetBody(body).Delete(d.getContentApiUrl(path))
@@ -365,37 +768,222 @@ func (d *Github) delete(path, sha, message string) error {
 	return nil
 }
 
-func (d *Github) rmdir(path, message string) error {
-	for { // the number of sub-items returned pre call is limited to a maximum of 1000
-		obj, err := d.get(path)
-		if err != nil { // until 404
-			return nil
-		}
-		if obj.Type != "dir" || obj.Entries == nil {
-			return errs.NotFolder
-		}
-		if len(obj.Entries) == 0 { // maybe never access
-			return nil
-		}
-		if err = d.clearSub(obj, path, message); err != nil {
-			return err
+func (d *Github) rmdir(parentPath, parentSha, sha, message string) error {
+	tree, err := d.getTree(parentSha)
+	if err != nil {
+		return err
+	}
+	if tree.Truncated {
+		return fmt.Errorf("tree %s is truncated", parentPath)
+	}
+	var newTree *TreeObjReq = nil
+	for _, t := range tree.Trees {
+		if t.Sha != sha {
+			newTree = &t.TreeObjReq
+			newTree.Sha = nil
+			break
 		}
 	}
+	if newTree == nil {
+		return errs.ObjectNotFound
+	}
+	newTreeSlice := make([]interface{}, 0, 2)
+	newTreeSlice = append(newTreeSlice, *newTree)
+	if len(tree.Trees) == 1 {
+		newTreeSlice = append(newTreeSlice, map[string]string{
+			"path":    ".gitkeep",
+			"mode":    "100644",
+			"type":    "blob",
+			"content": "",
+		})
+	}
+	sha, err = d.newTree(parentSha, newTreeSlice)
+	if err != nil {
+		return err
+	}
+
+	sha, err = d.renewParentTrees(parentPath, parentSha, sha, "/")
+	if err != nil {
+		return err
+	}
+	commit, err := d.commit(message, sha)
+	if err != nil {
+		return err
+	}
+	return d.updateHead(commit)
 }
 
-func (d *Github) clearSub(obj *Object, path, message string) error {
-	for _, entry := range obj.Entries {
-		var err error
-		if entry.Type == "dir" {
-			err = d.rmdir(stdpath.Join(path, entry.Name), message)
-		} else {
-			err = d.delete(stdpath.Join(path, entry.Name), entry.Sha, message)
-		}
+func (d *Github) renewParentTrees(path, prevSha, curSha, until string) (string, error) {
+	for path != until {
+		path = stdpath.Dir(path)
+		tree, sha, err := d.getTreeDirectly(path)
 		if err != nil {
-			return err
+			return "", err
 		}
+		var newTree *TreeObjReq = nil
+		for _, t := range tree.Trees {
+			if t.Sha == prevSha {
+				newTree = &t.TreeObjReq
+				newTree.Sha = curSha
+				break
+			}
+		}
+		if newTree == nil {
+			return "", errs.ObjectNotFound
+		}
+		curSha, err = d.newTree(sha, []interface{}{*newTree})
+		if err != nil {
+			return "", err
+		}
+		prevSha = sha
+	}
+	return curSha, nil
+}
+
+func (d *Github) getTree(sha string) (*TreeResp, error) {
+	res, err := d.client.R().Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/git/trees/%s", d.Owner, d.Repo, sha))
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode() != 200 {
+		return nil, toErr(res)
+	}
+	var resp TreeResp
+	if err = utils.Json.Unmarshal(res.Body(), &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (d *Github) getTreeDirectly(path string) (*TreeResp, string, error) {
+	p, err := d.get(path)
+	if err != nil {
+		return nil, "", err
+	}
+	if p.Entries == nil {
+		return nil, "", fmt.Errorf("%s is not a folder", path)
+	}
+	tree, err := d.getTree(p.Sha)
+	if err != nil {
+		return nil, "", err
+	}
+	if tree.Truncated {
+		return nil, "", fmt.Errorf("tree %s is truncated", path)
+	}
+	return tree, p.Sha, nil
+}
+
+func (d *Github) newTree(baseSha string, tree []interface{}) (string, error) {
+	res, err := d.client.R().
+		SetBody(&TreeReq{
+			BaseTree: baseSha,
+			Trees:    tree,
+		}).
+		Post(fmt.Sprintf("https://api.github.com/repos/%s/%s/git/trees", d.Owner, d.Repo))
+	if err != nil {
+		return "", err
+	}
+	if res.StatusCode() != 201 {
+		return "", toErr(res)
+	}
+	var resp TreeResp
+	if err = utils.Json.Unmarshal(res.Body(), &resp); err != nil {
+		return "", err
+	}
+	return resp.Sha, nil
+}
+
+func (d *Github) commit(message, treeSha string) (string, error) {
+	d.commitMutex.Lock()
+	defer d.commitMutex.Unlock()
+	oldCommit, err := d.getBranchHead()
+	body := map[string]interface{}{
+		"message": message,
+		"tree":    treeSha,
+		"parents": []string{oldCommit},
+	}
+	d.addCommitterAndAuthor(&body)
+	res, err := d.client.R().SetBody(body).Post(fmt.Sprintf("https://api.github.com/repos/%s/%s/git/commits", d.Owner, d.Repo))
+	if err != nil {
+		return "", err
+	}
+	if res.StatusCode() != 201 {
+		return "", toErr(res)
+	}
+	var resp CommitResp
+	if err = utils.Json.Unmarshal(res.Body(), &resp); err != nil {
+		return "", err
+	}
+	return resp.Sha, nil
+}
+
+func (d *Github) getBranchHead() (string, error) {
+	res, err := d.client.R().Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/branches/%s", d.Owner, d.Repo, d.Ref))
+	if err != nil {
+		return "", err
+	}
+	if res.StatusCode() != 200 {
+		return "", toErr(res)
+	}
+	var resp BranchResp
+	if err = utils.Json.Unmarshal(res.Body(), &resp); err != nil {
+		return "", err
+	}
+	return resp.Commit.Sha, nil
+}
+
+func (d *Github) updateHead(sha string) error {
+	res, err := d.client.R().
+		SetBody(&UpdateRefReq{
+			Sha:   sha,
+			Force: false,
+		}).
+		Patch(fmt.Sprintf("https://api.github.com/repos/%s/%s/git/refs/heads/%s", d.Owner, d.Repo, d.Ref))
+	if err != nil {
+		return err
+	}
+	if res.StatusCode() != 200 {
+		return toErr(res)
 	}
 	return nil
+}
+
+func (d *Github) copyWithoutRenewTree(srcObj, dstDir model.Obj) (dstSha, newSha, srcParentSha string, srcParentTree *TreeResp, err error) {
+	dst, err := d.get(dstDir.GetPath())
+	if err != nil {
+		return "", "", "", nil, err
+	}
+	dstSha = dst.Sha
+	srcParentPath := stdpath.Dir(srcObj.GetPath())
+	srcParentTree, srcParentSha, err = d.getTreeDirectly(srcParentPath)
+	if err != nil {
+		return "", "", "", nil, err
+	}
+	var src *TreeObjReq = nil
+	for _, t := range srcParentTree.Trees {
+		if t.Path == srcObj.GetName() {
+			if t.Type == "commit" {
+				return "", "", "", nil, errors.New("cannot copy a submodule")
+			}
+			src = &t.TreeObjReq
+			break
+		}
+	}
+	if src == nil {
+		return "", "", "", nil, errs.ObjectNotFound
+	}
+
+	delGitKeep := TreeObjReq{
+		Path: ".gitkeep",
+		Mode: "100644",
+		Type: "blob",
+		Sha:  nil,
+	}
+	newSha, err = d.newTree(dstSha, []interface{}{*src, delGitKeep})
+	if err != nil {
+		return "", "", "", nil, err
+	}
+	return dstSha, newSha, srcParentSha, srcParentTree, nil
 }
 
 func (d *Github) addCommitterAndAuthor(m *map[string]interface{}) {

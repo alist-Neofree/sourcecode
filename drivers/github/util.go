@@ -33,6 +33,8 @@ type MessageTemplateVars struct {
 	ObjPath    string
 	ParentName string
 	ParentPath string
+	TargetName string
+	TargetPath string
 }
 
 func getMessage(tmpl *template.Template, vars *MessageTemplateVars, defaultOpStr string) (string, error) {
@@ -54,4 +56,52 @@ func toErr(res *resty.Response) error {
 	} else {
 		return fmt.Errorf("%s: %s", res.Status(), errMsg.Message)
 	}
+}
+
+// Example input:
+// a = /aaa/bbb/ccc
+// b = /aaa/b11/ddd/ccc
+//
+// Output:
+// ancestor = /aaa
+// aChildName = bbb
+// bChildName = b11
+// aRest = bbb/ccc
+// bRest = b11/ddd/ccc
+func getPathCommonAncestor(a, b string) (ancestor, aChildName, bChildName, aRest, bRest string) {
+	a = utils.FixAndCleanPath(a)
+	b = utils.FixAndCleanPath(b)
+	idx := 1
+	for idx < len(a) && idx < len(b) {
+		if a[idx] != b[idx] {
+			break
+		}
+		idx++
+	}
+	aNextIdx := idx
+	for aNextIdx < len(a) {
+		if a[aNextIdx] == '/' {
+			break
+		}
+		aNextIdx++
+	}
+	bNextIdx := idx
+	for bNextIdx < len(b) {
+		if b[bNextIdx] == '/' {
+			break
+		}
+		bNextIdx++
+	}
+	for idx > 0 {
+		if a[idx] == '/' {
+			break
+		}
+		idx--
+	}
+	ancestor = utils.FixAndCleanPath(a[:idx])
+	aChildName = a[idx+1 : aNextIdx]
+	bChildName = b[idx+1 : bNextIdx]
+	aRest = a[idx+1:]
+	bRest = b[idx+1:]
+	return ancestor, aChildName, bChildName, aRest, bRest
 }
