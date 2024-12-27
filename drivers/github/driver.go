@@ -95,22 +95,15 @@ func (d *Github) Link(ctx context.Context, file model.Obj, args model.LinkArgs) 
 	if err != nil {
 		return nil, err
 	}
+	if obj.Type == "submodule" {
+		return nil, errors.New("cannot download a submodule")
+	}
 	return &model.Link{
 		URL: obj.DownloadURL,
 	}, nil
 }
 
 func (d *Github) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
-	commitMessage, err := getMessage(d.mkdirMsgTmpl, &MessageTemplateVars{
-		UserName:   ctx.Value("user").(*model.User).Username,
-		ObjName:    dirName,
-		ObjPath:    stdpath.Join(parentDir.GetPath(), dirName),
-		ParentName: parentDir.GetName(),
-		ParentPath: parentDir.GetPath(),
-	}, "mkdir")
-	if err != nil {
-		return err
-	}
 	parent, err := d.get(parentDir.GetPath())
 	if err != nil {
 		return err
@@ -124,6 +117,16 @@ func (d *Github) MakeDir(ctx context.Context, parentDir model.Obj, dirName strin
 		gitKeepSha = parent.Entries[0].Sha
 	}
 
+	commitMessage, err := getMessage(d.mkdirMsgTmpl, &MessageTemplateVars{
+		UserName:   ctx.Value("user").(*model.User).Username,
+		ObjName:    dirName,
+		ObjPath:    stdpath.Join(parentDir.GetPath(), dirName),
+		ParentName: parentDir.GetName(),
+		ParentPath: parentDir.GetPath(),
+	}, "mkdir")
+	if err != nil {
+		return err
+	}
 	if err = d.createGitKeep(stdpath.Join(parentDir.GetPath(), dirName), commitMessage); err != nil {
 		return err
 	}
@@ -147,6 +150,28 @@ func (d *Github) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj,
 
 func (d *Github) Remove(ctx context.Context, obj model.Obj) error {
 	parentDir := stdpath.Dir(obj.GetPath())
+	parent, err := d.get(parentDir)
+	if err != nil {
+		return err
+	}
+	if parent.Entries == nil {
+		return errs.ObjectNotFound
+	}
+	sha := ""
+	objType := ""
+	for _, entry := range parent.Entries {
+		if entry.Name == obj.GetName() {
+			sha = entry.Sha
+			objType = entry.Type
+			break
+		}
+	}
+	if sha == "" {
+		return errs.ObjectNotFound
+	}
+	if objType == "submodule" {
+		return errors.New("cannot delete a submodule")
+	}
 	commitMessage, err := getMessage(d.deleteMsgTmpl, &MessageTemplateVars{
 		UserName:   ctx.Value("user").(*model.User).Username,
 		ObjName:    obj.GetName(),
@@ -157,27 +182,8 @@ func (d *Github) Remove(ctx context.Context, obj model.Obj) error {
 	if err != nil {
 		return err
 	}
-	parent, err := d.get(parentDir)
-	if err != nil {
-		return err
-	}
-	if parent.Entries == nil {
-		return errs.ObjectNotFound
-	}
-	sha := ""
-	isDir := false
-	for _, entry := range parent.Entries {
-		if entry.Name == obj.GetName() {
-			sha = entry.Sha
-			isDir = entry.Type == "dir"
-			break
-		}
-	}
-	if isDir {
+	if objType == "dir" {
 		return d.rmdir(obj.GetPath(), commitMessage)
-	}
-	if sha == "" {
-		return errs.ObjectNotFound
 	}
 	// if deleted file is the only child of its parent, create .gitkeep to retain empty folder
 	if parentDir != "/" && len(parent.Entries) == 1 {
@@ -189,16 +195,6 @@ func (d *Github) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *Github) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
-	commitMessage, err := getMessage(d.putMsgTmpl, &MessageTemplateVars{
-		UserName:   ctx.Value("user").(*model.User).Username,
-		ObjName:    stream.GetName(),
-		ObjPath:    stdpath.Join(dstDir.GetPath(), stream.GetName()),
-		ParentName: dstDir.GetName(),
-		ParentPath: dstDir.GetPath(),
-	}, "upload")
-	if err != nil {
-		return nil, err
-	}
 	parent, err := d.get(dstDir.GetPath())
 	if err != nil {
 		return nil, err
@@ -219,6 +215,16 @@ func (d *Github) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		gitKeepSha = parent.Entries[0].Sha
 	}
 
+	commitMessage, err := getMessage(d.putMsgTmpl, &MessageTemplateVars{
+		UserName:   ctx.Value("user").(*model.User).Username,
+		ObjName:    stream.GetName(),
+		ObjPath:    stdpath.Join(dstDir.GetPath(), stream.GetName()),
+		ParentName: dstDir.GetName(),
+		ParentPath: dstDir.GetPath(),
+	}, "upload")
+	if err != nil {
+		return nil, err
+	}
 	path := stdpath.Join(dstDir.GetPath(), stream.GetName())
 	resp, err := d.put(path, uploadSha, commitMessage, ctx, stream, up)
 	if err != nil {
@@ -232,7 +238,7 @@ func (d *Github) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 
 var _ driver.Driver = (*Github)(nil)
 
-func (d *Github) getApiUrl(path string) string {
+func (d *Github) getContentApiUrl(path string) string {
 	path = utils.FixAndCleanPath(path)
 	return fmt.Sprintf("https://api.github.com/repos/%s/%s/contents%s", d.Owner, d.Repo, path)
 }
@@ -242,7 +248,7 @@ func (d *Github) get(path string) (*Object, error) {
 	if d.Ref != "" {
 		req = req.SetQueryParam("ref", d.Ref)
 	}
-	res, err := req.Get(d.getApiUrl(path))
+	res, err := req.Get(d.getContentApiUrl(path))
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +270,7 @@ func (d *Github) createGitKeep(path, message string) error {
 	}
 	d.addCommitterAndAuthor(&body)
 
-	res, err := d.client.R().SetBody(body).Put(d.getApiUrl(stdpath.Join(path, ".gitkeep")))
+	res, err := d.client.R().SetBody(body).Put(d.getContentApiUrl(stdpath.Join(path, ".gitkeep")))
 	if err != nil {
 		return err
 	}
@@ -326,7 +332,7 @@ func (d *Github) put(path, sha, message string, ctx context.Context, stream mode
 			Length:   length,
 			Progress: up,
 		}).
-		Put(d.getApiUrl(path))
+		Put(d.getContentApiUrl(path))
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +355,7 @@ func (d *Github) delete(path, sha, message string) error {
 		body["branch"] = d.Ref
 	}
 	d.addCommitterAndAuthor(&body)
-	res, err := d.client.R().SetBody(body).Delete(d.getApiUrl(path))
+	res, err := d.client.R().SetBody(body).Delete(d.getContentApiUrl(path))
 	if err != nil {
 		return err
 	}
