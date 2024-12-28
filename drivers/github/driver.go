@@ -457,7 +457,7 @@ func (d *Github) Rename(ctx context.Context, srcObj model.Obj, newName string) e
 		ParentName: stdpath.Base(parentDir),
 		ParentPath: parentDir,
 		TargetName: newName,
-		TargetPath: parentDir,
+		TargetPath: stdpath.Join(parentDir, newName),
 	}, "rename")
 	if err != nil {
 		return err
