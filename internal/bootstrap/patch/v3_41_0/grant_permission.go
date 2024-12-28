@@ -5,6 +5,8 @@ import (
 	"github.com/alist-org/alist/v3/pkg/utils"
 )
 
+// GrantAdminPermissions gives admin Permission 0(can see hidden) - 9(webdav manage)
+// This patch is written to help users upgrading from older version better adapt to PR AlistGo/alist#7705.
 func GrantAdminPermissions() {
 	admin, err := op.GetAdmin()
 	if err != nil {
