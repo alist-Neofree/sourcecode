@@ -80,13 +80,13 @@ func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskExtensionInfo, erro
 		} else {
 			tempDir = filepath.Join(setting.GetStr(conf.Pan115TempDir), uid)
 		}
-	case "pikpak":
+	case "PikPak":
 		if _, ok := storage.(*pikpak.PikPak); ok {
 			tempDir = args.DstDirPath
 		} else {
 			tempDir = filepath.Join(setting.GetStr(conf.PikPakTempDir), uid)
 		}
-	case "thunder":
+	case "Thunder":
 		if _, ok := storage.(*thunder.Thunder); ok {
 			tempDir = args.DstDirPath
 		} else {

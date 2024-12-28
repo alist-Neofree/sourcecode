@@ -80,10 +80,10 @@ outer:
 	if err != nil {
 		return err
 	}
-	if t.tool.Name() == "pikpak" {
+	if t.tool.Name() == "Pikpak" {
 		return nil
 	}
-	if t.tool.Name() == "thunder" {
+	if t.tool.Name() == "Thunder" {
 		return nil
 	}
 	if t.tool.Name() == "115 Cloud" {
@@ -109,7 +109,7 @@ outer:
 		}
 	}
 
-	if t.tool.Name() == "transmission" {
+	if t.tool.Name() == "Transmission" {
 		// hack for transmission
 		seedTime := setting.GetInt(conf.TransmissionSeedtime, 0)
 		if seedTime >= 0 {
@@ -158,7 +158,7 @@ func (t *DownloadTask) Update() (bool, error) {
 
 func (t *DownloadTask) Transfer() error {
 	toolName := t.tool.Name()
-	if toolName == "115 Cloud" || toolName == "pikpak" || toolName == "thunder" {
+	if toolName == "115 Cloud" || toolName == "PikPak" || toolName == "Thunder" {
 		// 如果不是直接下载到目标路径，则进行转存
 		if t.TempDir != t.DstDirPath {
 			return transferObj(t.Ctx(), t.TempDir, t.DstDirPath, t.DeletePolicy)
