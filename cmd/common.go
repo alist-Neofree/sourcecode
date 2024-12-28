@@ -19,6 +19,7 @@ func Init() {
 	bootstrap.InitDB()
 	data.InitData()
 	bootstrap.InitIndex()
+	bootstrap.InitUpgradePatch()
 }
 
 func Release() {
