@@ -15,7 +15,6 @@ import (
 func Init() {
 	bootstrap.InitConfig()
 	bootstrap.Log()
-	bootstrap.InitHostKey()
 	bootstrap.InitDB()
 	data.InitData()
 	bootstrap.InitIndex()
