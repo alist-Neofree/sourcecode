@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	"io"
@@ -104,4 +105,12 @@ func getPathCommonAncestor(a, b string) (ancestor, aChildName, bChildName, aRest
 	aRest = a[idx+1:]
 	bRest = b[idx+1:]
 	return ancestor, aChildName, bChildName, aRest, bRest
+}
+
+func getUsername(ctx context.Context) string {
+	user, ok := ctx.Value("user").(*model.User)
+	if !ok {
+		return "<system>"
+	}
+	return user.Username
 }

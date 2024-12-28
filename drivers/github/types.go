@@ -54,22 +54,21 @@ type TreeObjReq struct {
 	Mode string      `json:"mode"`
 	Type string      `json:"type"`
 	Sha  interface{} `json:"sha"`
-	Size int64       `json:"size" required:"false"`
-}
-
-func (o *TreeObjReq) toModelObj() *model.Object {
-	return &model.Object{
-		Name:     o.Path,
-		Size:     o.Size,
-		Modified: time.Unix(0, 0),
-		IsFolder: o.Type == "tree",
-	}
 }
 
 type TreeObjResp struct {
 	TreeObjReq
 	Size int64  `json:"size" required:"false"`
 	URL  string `json:"url"`
+}
+
+func (o *TreeObjResp) toModelObj() *model.Object {
+	return &model.Object{
+		Name:     o.Path,
+		Size:     o.Size,
+		Modified: time.Unix(0, 0),
+		IsFolder: o.Type == "tree",
+	}
 }
 
 type TreeResp struct {
@@ -96,4 +95,8 @@ type BranchResp struct {
 type UpdateRefReq struct {
 	Sha   string `json:"sha"`
 	Force bool   `json:"force"`
+}
+
+type RepoResp struct {
+	DefaultBranch string `json:"default_branch"`
 }
