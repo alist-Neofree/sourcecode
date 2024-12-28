@@ -407,11 +407,7 @@ func (d *Github) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
 	if err != nil {
 		return err
 	}
-	commit, err := d.commit(message, rootSha)
-	if err != nil {
-		return err
-	}
-	return d.updateHead(commit)
+	return d.commit(message, rootSha)
 }
 
 func (d *Github) Rename(ctx context.Context, srcObj model.Obj, newName string) error {
@@ -462,11 +458,7 @@ func (d *Github) Rename(ctx context.Context, srcObj model.Obj, newName string) e
 	if err != nil {
 		return err
 	}
-	commit, err := d.commit(message, rootSha)
-	if err != nil {
-		return err
-	}
-	return d.updateHead(commit)
+	return d.commit(message, rootSha)
 }
 
 func (d *Github) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
@@ -497,11 +489,7 @@ func (d *Github) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 	if err != nil {
 		return err
 	}
-	commit, err := d.commit(message, rootSha)
-	if err != nil {
-		return err
-	}
-	return d.updateHead(commit)
+	return d.commit(message, rootSha)
 }
 
 func (d *Github) Remove(ctx context.Context, obj model.Obj) error {
@@ -552,11 +540,7 @@ func (d *Github) Remove(ctx context.Context, obj model.Obj) error {
 		ParentName: stdpath.Base(parentDir),
 		ParentPath: parentDir,
 	}, "remove")
-	commit, err := d.commit(commitMessage, rootSha)
-	if err != nil {
-		return err
-	}
-	return d.updateHead(commit)
+	return d.commit(commitMessage, rootSha)
 }
 
 func (d *Github) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
@@ -647,6 +631,8 @@ func (d *Github) get(path string) (*Object, error) {
 }
 
 func (d *Github) createGitKeep(path, message string) error {
+	d.commitMutex.Lock()
+	defer d.commitMutex.Unlock()
 	body := map[string]interface{}{
 		"message": message,
 		"content": "",
@@ -705,6 +691,8 @@ func (d *Github) put(path, sha, message string, ctx context.Context, stream mode
 		_ = contentWriter.Close()
 	}()
 	afterContentReader := strings.NewReader("\"}")
+	d.commitMutex.Lock()
+	defer d.commitMutex.Unlock()
 	res, err := d.client.R().
 		SetHeader("Content-Length", strconv.FormatInt(length, 10)).
 		SetBody(&ReaderWithCtx{
@@ -728,6 +716,8 @@ func (d *Github) put(path, sha, message string, ctx context.Context, stream mode
 }
 
 func (d *Github) delete(path, sha, message string) error {
+	d.commitMutex.Lock()
+	defer d.commitMutex.Unlock()
 	body := map[string]interface{}{
 		"message": message,
 		"sha":     sha,
@@ -824,7 +814,7 @@ func (d *Github) newTree(baseSha string, tree []interface{}) (string, error) {
 	return resp.Sha, nil
 }
 
-func (d *Github) commit(message, treeSha string) (string, error) {
+func (d *Github) commit(message, treeSha string) error {
 	d.commitMutex.Lock()
 	defer d.commitMutex.Unlock()
 	oldCommit, err := d.getBranchHead()
@@ -836,16 +826,30 @@ func (d *Github) commit(message, treeSha string) (string, error) {
 	d.addCommitterAndAuthor(&body)
 	res, err := d.client.R().SetBody(body).Post(fmt.Sprintf("https://api.github.com/repos/%s/%s/git/commits", d.Owner, d.Repo))
 	if err != nil {
-		return "", err
+		return err
 	}
 	if res.StatusCode() != 201 {
-		return "", toErr(res)
+		return toErr(res)
 	}
 	var resp CommitResp
 	if err = utils.Json.Unmarshal(res.Body(), &resp); err != nil {
-		return "", err
+		return err
 	}
-	return resp.Sha, nil
+
+	// update branch head
+	res, err = d.client.R().
+		SetBody(&UpdateRefReq{
+			Sha:   resp.Sha,
+			Force: false,
+		}).
+		Patch(fmt.Sprintf("https://api.github.com/repos/%s/%s/git/refs/heads/%s", d.Owner, d.Repo, d.Ref))
+	if err != nil {
+		return err
+	}
+	if res.StatusCode() != 200 {
+		return toErr(res)
+	}
+	return nil
 }
 
 func (d *Github) getBranchHead() (string, error) {
@@ -861,22 +865,6 @@ func (d *Github) getBranchHead() (string, error) {
 		return "", err
 	}
 	return resp.Commit.Sha, nil
-}
-
-func (d *Github) updateHead(sha string) error {
-	res, err := d.client.R().
-		SetBody(&UpdateRefReq{
-			Sha:   sha,
-			Force: false,
-		}).
-		Patch(fmt.Sprintf("https://api.github.com/repos/%s/%s/git/refs/heads/%s", d.Owner, d.Repo, d.Ref))
-	if err != nil {
-		return err
-	}
-	if res.StatusCode() != 200 {
-		return toErr(res)
-	}
-	return nil
 }
 
 func (d *Github) copyWithoutRenewTree(srcObj, dstDir model.Obj) (dstSha, newSha, srcParentSha string, srcParentTree *TreeResp, err error) {
