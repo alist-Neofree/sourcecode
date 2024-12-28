@@ -50,21 +50,21 @@ func InitUpgradePatch() {
 		return
 	}
 	major, minor, patchNum, err := getVersion(lastLaunchedVersion)
-	if err != nil {
-		utils.Log.Errorf("Failed to get last launched version: %v", err)
-		return
-	}
-	for _, vp := range patch.UpgradePatches {
-		ma, mi, pn, err := getVersion(vp.Version)
-		if err != nil {
-			utils.Log.Errorf("Skip invalid version %s patches: %v", vp.Version, err)
-			continue
-		}
-		if compareVersion(ma, mi, pn, major, minor, patchNum) {
-			for i, p := range vp.Patches {
-				safeCall(vp.Version, i, p)
+	if err == nil {
+		for _, vp := range patch.UpgradePatches {
+			ma, mi, pn, err := getVersion(vp.Version)
+			if err != nil {
+				utils.Log.Errorf("Skip invalid version %s patches: %v", vp.Version, err)
+				continue
+			}
+			if compareVersion(ma, mi, pn, major, minor, patchNum) {
+				for i, p := range vp.Patches {
+					safeCall(vp.Version, i, p)
+				}
 			}
 		}
+	} else {
+		utils.Log.Warnf("Failed to parse last launched version %s: %v, skipping all patches and rewrite last launched version", lastLaunchedVersion, err)
 	}
 	conf.Conf.LastLaunchedVersion = conf.Version
 	configPath := filepath.Join(flags.DataDir, "config.json")
