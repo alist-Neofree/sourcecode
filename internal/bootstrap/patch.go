@@ -2,13 +2,12 @@ package bootstrap
 
 import (
 	"fmt"
-	"github.com/alist-org/alist/v3/cmd/flags"
 	"github.com/alist-org/alist/v3/internal/bootstrap/patch"
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/pkg/utils"
-	log "github.com/sirupsen/logrus"
-	"path/filepath"
 )
+
+var LastLaunchedVersion = ""
 
 func safeCall(v string, i int, f func()) {
 	defer func() {
@@ -42,33 +41,27 @@ func InitUpgradePatch() {
 	if conf.Version == "dev" {
 		return
 	}
-	lastLaunchedVersion := conf.Conf.LastLaunchedVersion
-	if lastLaunchedVersion == "" {
-		lastLaunchedVersion = "v3.41.0"
-	}
-	if lastLaunchedVersion == conf.Version {
+	if LastLaunchedVersion == conf.Version {
 		return
 	}
-	major, minor, patchNum, err := getVersion(lastLaunchedVersion)
-	if err == nil {
-		for _, vp := range patch.UpgradePatches {
-			ma, mi, pn, err := getVersion(vp.Version)
-			if err != nil {
-				utils.Log.Errorf("Skip invalid version %s patches: %v", vp.Version, err)
-				continue
-			}
-			if compareVersion(ma, mi, pn, major, minor, patchNum) {
-				for i, p := range vp.Patches {
-					safeCall(vp.Version, i, p)
-				}
+	if LastLaunchedVersion == "" {
+		LastLaunchedVersion = "v0.0.0"
+	}
+	major, minor, patchNum, err := getVersion(LastLaunchedVersion)
+	if err != nil {
+		utils.Log.Warnf("Failed to parse last launched version %s: %v, skipping all patches and rewrite last launched version", LastLaunchedVersion, err)
+		return
+	}
+	for _, vp := range patch.UpgradePatches {
+		ma, mi, pn, err := getVersion(vp.Version)
+		if err != nil {
+			utils.Log.Errorf("Skip invalid version %s patches: %v", vp.Version, err)
+			continue
+		}
+		if compareVersion(ma, mi, pn, major, minor, patchNum) {
+			for i, p := range vp.Patches {
+				safeCall(vp.Version, i, p)
 			}
 		}
-	} else {
-		utils.Log.Warnf("Failed to parse last launched version %s: %v, skipping all patches and rewrite last launched version", lastLaunchedVersion, err)
-	}
-	conf.Conf.LastLaunchedVersion = conf.Version
-	configPath := filepath.Join(flags.DataDir, "config.json")
-	if !utils.WriteJsonToFile(configPath, conf.Conf) {
-		log.Fatalf("failed to create default config file")
 	}
 }
