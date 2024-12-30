@@ -13,18 +13,17 @@ import (
 	"text/template"
 )
 
-type ReaderWithCtx struct {
+type ReaderWithProgress struct {
 	Reader   io.Reader
-	Ctx      context.Context
 	Length   int64
 	Progress func(percentage float64)
 	offset   int64
 }
 
-func (r *ReaderWithCtx) Read(p []byte) (int, error) {
+func (r *ReaderWithProgress) Read(p []byte) (int, error) {
 	n, err := r.Reader.Read(p)
 	r.offset += int64(n)
-	r.Progress(math.Min(100.0, float64(r.offset)/float64(r.Length)))
+	r.Progress(math.Min(100.0, float64(r.offset)/float64(r.Length)*100.0))
 	return n, err
 }
 

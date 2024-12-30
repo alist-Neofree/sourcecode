@@ -13,8 +13,8 @@ import (
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
 	"io"
+	"net/http"
 	stdpath "path"
-	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -156,6 +156,8 @@ func (d *Github) MakeDir(ctx context.Context, parentDir model.Obj, dirName strin
 	if !d.isOnBranch {
 		return errors.New("cannot write to non-branch reference")
 	}
+	d.commitMutex.Lock()
+	defer d.commitMutex.Unlock()
 	parent, err := d.get(parentDir.GetPath())
 	if err != nil {
 		return err
@@ -195,6 +197,8 @@ func (d *Github) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
 	if strings.HasPrefix(dstDir.GetPath(), srcObj.GetPath()) {
 		return errors.New("cannot move parent dir to child")
 	}
+	d.commitMutex.Lock()
+	defer d.commitMutex.Unlock()
 
 	var rootSha string
 	if strings.HasPrefix(dstDir.GetPath(), stdpath.Dir(srcObj.GetPath())) { // /aa/1 -> /aa/bb/
@@ -414,6 +418,8 @@ func (d *Github) Rename(ctx context.Context, srcObj model.Obj, newName string) e
 	if !d.isOnBranch {
 		return errors.New("cannot write to non-branch reference")
 	}
+	d.commitMutex.Lock()
+	defer d.commitMutex.Unlock()
 	parentDir := stdpath.Dir(srcObj.GetPath())
 	tree, _, err := d.getTreeDirectly(parentDir)
 	if err != nil {
@@ -468,6 +474,8 @@ func (d *Github) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 	if strings.HasPrefix(dstDir.GetPath(), srcObj.GetPath()) {
 		return errors.New("cannot copy parent dir to child")
 	}
+	d.commitMutex.Lock()
+	defer d.commitMutex.Unlock()
 
 	dstSha, newSha, _, _, err := d.copyWithoutRenewTree(srcObj, dstDir)
 	if err != nil {
@@ -496,6 +504,8 @@ func (d *Github) Remove(ctx context.Context, obj model.Obj) error {
 	if !d.isOnBranch {
 		return errors.New("cannot write to non-branch reference")
 	}
+	d.commitMutex.Lock()
+	defer d.commitMutex.Unlock()
 	parentDir := stdpath.Dir(obj.GetPath())
 	tree, treeSha, err := d.getTreeDirectly(parentDir)
 	if err != nil {
@@ -540,53 +550,51 @@ func (d *Github) Remove(ctx context.Context, obj model.Obj) error {
 		ParentName: stdpath.Base(parentDir),
 		ParentPath: parentDir,
 	}, "remove")
+	if err != nil {
+		return err
+	}
 	return d.commit(commitMessage, rootSha)
 }
 
-func (d *Github) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
+func (d *Github) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
 	if !d.isOnBranch {
-		return nil, errors.New("cannot write to non-branch reference")
+		return errors.New("cannot write to non-branch reference")
 	}
+	blob, err := d.putBlob(ctx, stream, up)
+	if err != nil {
+		return err
+	}
+	d.commitMutex.Lock()
+	defer d.commitMutex.Unlock()
 	parent, err := d.get(dstDir.GetPath())
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if parent.Entries == nil {
-		return nil, errs.NotFolder
+		return errs.NotFolder
 	}
-	uploadSha := ""
-	if len(parent.Entries) >= 1000 {
-		tree, err := d.getTree(parent.Sha)
-		if err != nil {
-			return nil, err
-		}
-		if tree.Truncated {
-			return nil, fmt.Errorf("tree %s is truncated", dstDir.GetPath())
-		}
-		for _, t := range tree.Trees {
-			if t.Path == stream.GetName() {
-				if t.Type == "commit" {
-					return nil, errors.New("cannot replace a submodule")
-				}
-				uploadSha = t.Sha.(string)
-				break
-			}
-		}
-	} else {
-		for _, entry := range parent.Entries {
-			if entry.Name == stream.GetName() {
-				if entry.Type == "submodule" {
-					return nil, errors.New("cannot replace a submodule")
-				}
-				uploadSha = entry.Sha
-				break
-			}
-		}
-	}
-	// if parent folder contains .gitkeep only, mark it and delete .gitkeep later
-	gitKeepSha := ""
+	newTree := make([]interface{}, 0, 2)
+	newTree = append(newTree, TreeObjReq{
+		Path: stream.GetName(),
+		Mode: "100644",
+		Type: "blob",
+		Sha:  blob,
+	})
 	if len(parent.Entries) == 1 && parent.Entries[0].Name == ".gitkeep" {
-		gitKeepSha = parent.Entries[0].Sha
+		newTree = append(newTree, TreeObjReq{
+			Path: ".gitkeep",
+			Mode: "100644",
+			Type: "blob",
+			Sha:  nil,
+		})
+	}
+	newSha, err := d.newTree(parent.Sha, newTree)
+	if err != nil {
+		return err
+	}
+	rootSha, err := d.renewParentTrees(dstDir.GetPath(), parent.Sha, newSha, "/")
+	if err != nil {
+		return err
 	}
 
 	commitMessage, err := getMessage(d.putMsgTmpl, &MessageTemplateVars{
@@ -597,17 +605,9 @@ func (d *Github) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		ParentPath: dstDir.GetPath(),
 	}, "upload")
 	if err != nil {
-		return nil, err
+		return err
 	}
-	path := stdpath.Join(dstDir.GetPath(), stream.GetName())
-	resp, err := d.put(path, uploadSha, commitMessage, ctx, stream, up)
-	if err != nil {
-		return nil, err
-	}
-	if gitKeepSha != "" {
-		err = d.delete(stdpath.Join(dstDir.GetPath(), ".gitkeep"), gitKeepSha, commitMessage)
-	}
-	return resp.Content.toModelObj(), err
+	return d.commit(commitMessage, rootSha)
 }
 
 var _ driver.Driver = (*Github)(nil)
@@ -631,8 +631,6 @@ func (d *Github) get(path string) (*Object, error) {
 }
 
 func (d *Github) createGitKeep(path, message string) error {
-	d.commitMutex.Lock()
-	defer d.commitMutex.Unlock()
 	body := map[string]interface{}{
 		"message": message,
 		"content": "",
@@ -650,36 +648,11 @@ func (d *Github) createGitKeep(path, message string) error {
 	return nil
 }
 
-func (d *Github) put(path, sha, message string, ctx context.Context, stream model.FileStreamer, up driver.UpdateProgress) (*PutResp, error) {
-	beforeContent := strings.Builder{}
-	beforeContent.WriteString("{\"message\":\"")
-	beforeContent.WriteString(message)
-	beforeContent.WriteString("\",\"branch\":\"")
-	beforeContent.WriteString(d.Ref)
-	beforeContent.WriteString("\",")
-	if sha != "" {
-		beforeContent.WriteString("\"sha\":\"")
-		beforeContent.WriteString(sha)
-		beforeContent.WriteString("\",")
-	}
-	if d.CommitterName != "" {
-		beforeContent.WriteString("\"committer\":{\"name\":\"")
-		beforeContent.WriteString(d.CommitterName)
-		beforeContent.WriteString("\",\"email\":\"")
-		beforeContent.WriteString(d.CommitterEmail)
-		beforeContent.WriteString("\"},")
-	}
-	if d.AuthorName != "" {
-		beforeContent.WriteString("\"author\":{\"name\":\"")
-		beforeContent.WriteString(d.AuthorName)
-		beforeContent.WriteString("\",\"email\":\"")
-		beforeContent.WriteString(d.AuthorEmail)
-		beforeContent.WriteString("\"},")
-	}
-	beforeContent.WriteString("\"content\":\"")
-
-	length := int64(beforeContent.Len()) + calculateBase64Length(stream.GetSize()) + 2
-	beforeContentReader := strings.NewReader(beforeContent.String())
+func (d *Github) putBlob(ctx context.Context, stream model.FileStreamer, up driver.UpdateProgress) (string, error) {
+	beforeContent := "{\"encoding\":\"base64\",\"content\":\""
+	afterContent := "\"}"
+	length := int64(len(beforeContent)) + calculateBase64Length(stream.GetSize()) + int64(len(afterContent))
+	beforeContentReader := strings.NewReader(beforeContent)
 	contentReader, contentWriter := io.Pipe()
 	go func() {
 		encoder := base64.NewEncoder(base64.StdEncoding, contentWriter)
@@ -690,34 +663,46 @@ func (d *Github) put(path, sha, message string, ctx context.Context, stream mode
 		_ = encoder.Close()
 		_ = contentWriter.Close()
 	}()
-	afterContentReader := strings.NewReader("\"}")
-	d.commitMutex.Lock()
-	defer d.commitMutex.Unlock()
-	res, err := d.client.R().
-		SetHeader("Content-Length", strconv.FormatInt(length, 10)).
-		SetBody(&ReaderWithCtx{
+	afterContentReader := strings.NewReader(afterContent)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("https://api.github.com/repos/%s/%s/git/blobs", d.Owner, d.Repo),
+		&ReaderWithProgress{
 			Reader:   io.MultiReader(beforeContentReader, contentReader, afterContentReader),
-			Ctx:      ctx,
 			Length:   length,
 			Progress: up,
-		}).
-		Put(d.getContentApiUrl(path))
+		})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	if res.StatusCode() != 200 && res.StatusCode() != 201 {
-		return nil, toErr(res)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Authorization", "Bearer "+d.Token)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.ContentLength = length
+
+	res, err := base.HttpClient.Do(req)
+	if err != nil {
+		return "", err
 	}
-	var resp PutResp
-	if err = utils.Json.Unmarshal(res.Body(), &resp); err != nil {
-		return nil, err
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
 	}
-	return &resp, nil
+	if res.StatusCode != 201 {
+		var errMsg ErrResp
+		if err = utils.Json.Unmarshal(resBody, &errMsg); err != nil {
+			return "", errors.New(res.Status)
+		} else {
+			return "", fmt.Errorf("%s: %s", res.Status, errMsg.Message)
+		}
+	}
+	var resp PutBlobResp
+	if err = utils.Json.Unmarshal(resBody, &resp); err != nil {
+		return "", err
+	}
+	return resp.Sha, nil
 }
 
 func (d *Github) delete(path, sha, message string) error {
-	d.commitMutex.Lock()
-	defer d.commitMutex.Unlock()
 	body := map[string]interface{}{
 		"message": message,
 		"sha":     sha,
@@ -815,8 +800,6 @@ func (d *Github) newTree(baseSha string, tree []interface{}) (string, error) {
 }
 
 func (d *Github) commit(message, treeSha string) error {
-	d.commitMutex.Lock()
-	defer d.commitMutex.Unlock()
 	oldCommit, err := d.getBranchHead()
 	body := map[string]interface{}{
 		"message": message,

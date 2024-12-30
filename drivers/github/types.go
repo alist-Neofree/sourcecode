@@ -38,9 +38,9 @@ func (o *Object) toModelObj() *model.Object {
 	}
 }
 
-type PutResp struct {
-	Content Object      `json:"Content"`
-	Commit  interface{} `json:"commit"`
+type PutBlobResp struct {
+	URL string `json:"url"`
+	Sha string `json:"sha"`
 }
 
 type ErrResp struct {
