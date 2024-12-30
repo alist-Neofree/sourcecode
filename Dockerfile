@@ -22,7 +22,7 @@ RUN apk update && \
     [ "$INSTALL_ARIA2" = "true" ] && apk add --no-cache curl aria2 && \
         mkdir -p /opt/aria2/.aria2 && \
         wget https://github.com/P3TERX/aria2.conf/archive/refs/heads/master.tar.gz -O /tmp/aria-conf.tar.gz && \
-        tar -zxvf /tmp/aria-conf.tar.gz -C /opt/aria2/.aria2 && rm -f /tmp/aria-conf.tar.gz && \
+        tar -zxvf /tmp/aria-conf.tar.gz -C /opt/aria2/.aria2 --strip-components=1 && rm -f /tmp/aria-conf.tar.gz && \
         sed -i 's|rpc-secret|#rpc-secret|g' /opt/aria2/.aria2/aria2.conf && \
         sed -i 's|/root/.aria2|/opt/aria2/.aria2|g' /opt/aria2/.aria2/aria2.conf && \
         sed -i 's|/root/.aria2|/opt/aria2/.aria2|g' /opt/aria2/.aria2/script.conf && \
