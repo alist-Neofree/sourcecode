@@ -60,13 +60,15 @@ jobs:
             build_arg: ""
             tag_favor: ""
           - image: "ffmpeg"
-            build_arg: "INSTALL_FFMPEG=true"
+            build_arg: INSTALL_FFMPEG=true
             tag_favor: "suffix=-ffmpeg,onlatest=true"
           - image: "aria2"
-            build_arg: "INSTALL_ARIA2=true"
+            build_arg: INSTALL_ARIA2=true
             tag_favor: "suffix=-aria2,onlatest=true"
           - image: "aio"
-            build_arg: "INSTALL_FFMPEG=true,INSTALL_ARIA2=true"
+            build_arg: |
+              INSTALL_FFMPEG=true
+              INSTALL_ARIA2=true
             tag_favor: "suffix=-aio,onlatest=true"
     steps:
       - name: Checkout
