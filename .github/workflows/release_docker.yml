@@ -5,9 +5,16 @@ on:
     tags:
       - 'v*'
 
+env:
+  IMAGE_REGISTRY: 'xhofe/alist'
+  REGISTRY_USERNAME: 'xhofe'
+  REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+  ARTIFACT_NAME: 'binaries_docker_release'
+  RELEASE_PLATFORMS: 'linux/amd64,linux/arm64,linux/arm/v7,linux/386,linux/arm/v6,linux/s390x,linux/ppc64le,linux/riscv64'
+
 jobs:
-  release_docker:
-    name: Release Docker
+  build_binary:
+    name: Build Binaries for Docker Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,11 +38,42 @@ jobs:
       - name: Build go binary
         run: bash build.sh release docker-multiplatform
 
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          images: xhofe/alist
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            build/
+            !build/*.tgz
+            !build/musl-libs/**
+
+  release_docker:
+    needs: build_binary
+    name: Release Docker image
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: ["latest", "ffmpeg", "aria2", "aio"]
+        include:
+          - image: "latest"
+            build_arg: ""
+            tag_favor: ""
+          - image: "ffmpeg"
+            build_arg: "INSTALL_FFMPEG=true"
+            tag_favor: "suffix=-ffmpeg,onlatest=true"
+          - image: "aria2"
+            build_arg: "INSTALL_ARIA2=true"
+            tag_favor: "suffix=-aria2,onlatest=true"
+          - image: "aio"
+            build_arg: "INSTALL_FFMPEG=true,INSTALL_ARIA2=true"
+            tag_favor: "suffix=-aio,onlatest=true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: 'build/'
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -46,8 +84,17 @@ jobs:
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
-          username: xhofe
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_REGISTRY }}
+          flavor: |
+            latest=true
+            ${{ matrix.tag_favor }}
 
       - name: Build and push
         id: docker_build
@@ -56,53 +103,7 @@ jobs:
           context: .
           file: Dockerfile.ci
           push: true
+          build-args: ${{ matrix.build_arg }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/386,linux/arm/v6,linux/s390x,linux/ppc64le,linux/riscv64
-
-      - name: Docker meta with ffmpeg
-        id: meta-ffmpeg
-        uses: docker/metadata-action@v5
-        with:
-          images: xhofe/alist
-          flavor: |
-            latest=true
-            suffix=-ffmpeg,onlatest=true
-            
-      - name: Build and push with ffmpeg
-        id: docker_build_ffmpeg
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.ci
-          push: true
-          tags: ${{ steps.meta-ffmpeg.outputs.tags }}
-          labels: ${{ steps.meta-ffmpeg.outputs.labels }}
-          build-args: INSTALL_FFMPEG=true
-          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/386,linux/arm/v6,linux/s390x,linux/ppc64le,linux/riscv64
-
-  release_docker_with_aria2:
-    needs: release_docker
-    name: Release docker with aria2
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-        with:
-          repository: alist-org/with_aria2
-          ref: main
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Add tag
-        run: |
-          git config --local user.email "bot@nn.ci"
-          git config --local user.name "IlaBot"
-          git tag -a ${{ github.ref_name }} -m "release ${{ github.ref_name }}"
-
-      - name: Push tags
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.MY_TOKEN }}
-          branch: main
-          repository: alist-org/with_aria2
+          platforms: ${{ env.RELEASE_PLATFORMS }}
