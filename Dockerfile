@@ -30,7 +30,8 @@ RUN apk update && \
 
 COPY --from=builder /app/bin/alist ./
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh && /entrypoint.sh version
+RUN chmod +x /opt/alist/alist && \
+    chmod +x /entrypoint.sh && /entrypoint.sh version
 
 ENV PUID=0 PGID=0 UMASK=022 RUN_ARIA2=${INSTALL_ARIA2}
 VOLUME /opt/alist/data/
