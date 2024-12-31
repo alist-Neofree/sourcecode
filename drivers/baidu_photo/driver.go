@@ -330,8 +330,8 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 					"path":     params["path"],
 					"partseq":  fmt.Sprint(partseq),
 					"uploadid": precreateResp.UploadID,
+					"app_id":   "16051585",
 				}
-
 				_, err = d.Post("https://c3.pcs.baidu.com/rest/2.0/pcs/superfile2", func(r *resty.Request) {
 					r.SetContext(ctx)
 					r.SetQueryParams(uploadParams)
@@ -358,6 +358,7 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		_, err = d.Post(FILE_API_URL_V1+"/create", func(r *resty.Request) {
 			r.SetContext(ctx)
 			r.SetFormData(params)
+			r.SetQueryParam("bdstoken", d.bdstoken)
 		}, &precreateResp)
 		if err != nil {
 			return nil, err
