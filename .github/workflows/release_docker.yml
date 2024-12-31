@@ -6,8 +6,8 @@ on:
       - 'v*'
 
 env:
-  IMAGE_REGISTRY: 'xhofe/alist'
-  REGISTRY_USERNAME: 'xhofe'
+  IMAGE_REGISTRY: 'mmx233/alist'
+  REGISTRY_USERNAME: 'mmx233'
   REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
   ARTIFACT_NAME: 'binaries_docker_release'
   RELEASE_PLATFORMS: 'linux/amd64,linux/arm64,linux/arm/v7,linux/386,linux/arm/v6,linux/s390x,linux/ppc64le,linux/riscv64'
