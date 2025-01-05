@@ -38,10 +38,6 @@ func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskExtensionInfo, erro
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed get storage")
 	}
-	// try putting url
-	if args.Tool == "SimpleHttp" && tryPutUrl(ctx, storage, dstDirActualPath, args.URL) {
-		return nil, nil
-	}
 	// check is it could upload
 	if storage.Config().NoUpload {
 		return nil, errors.WithStack(errs.UploadNotSupported)
@@ -57,6 +53,10 @@ func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskExtensionInfo, erro
 			// can't add to a file
 			return nil, errors.WithStack(errs.NotFolder)
 		}
+	}
+	// try putting url
+	if args.Tool == "SimpleHttp" && tryPutUrl(ctx, storage, dstDirActualPath, args.URL) {
+		return nil, nil
 	}
 
 	// get tool
