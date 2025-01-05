@@ -145,7 +145,9 @@ func AddOfflineDownload(c *gin.Context) {
 			common.ErrorResp(c, err, 500)
 			return
 		}
-		tasks = append(tasks, t)
+		if t != nil {
+			tasks = append(tasks, t)
+		}
 	}
 	common.SuccessResp(c, gin.H{
 		"tasks": getTaskInfos(tasks),

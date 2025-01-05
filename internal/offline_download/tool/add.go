@@ -2,8 +2,11 @@ package tool
 
 import (
 	"context"
+	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/task"
+	"net/url"
+	"path"
 	"path/filepath"
 
 	"github.com/alist-org/alist/v3/internal/conf"
@@ -30,22 +33,14 @@ type AddURLArgs struct {
 }
 
 func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskExtensionInfo, error) {
-	// get tool
-	tool, err := Tools.Get(args.Tool)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed get tool")
-	}
-	// check tool is ready
-	if !tool.IsReady() {
-		// try to init tool
-		if _, err := tool.Init(); err != nil {
-			return nil, errors.Wrapf(err, "failed init tool %s", args.Tool)
-		}
-	}
 	// check storage
 	storage, dstDirActualPath, err := op.GetStorageAndActualPath(args.DstDirPath)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed get storage")
+	}
+	// try putting url
+	if args.Tool == "SimpleHttp" && tryPutUrl(ctx, storage, dstDirActualPath, args.URL) {
+		return nil, nil
 	}
 	// check is it could upload
 	if storage.Config().NoUpload {
@@ -61,6 +56,19 @@ func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskExtensionInfo, erro
 		if !obj.IsDir() {
 			// can't add to a file
 			return nil, errors.WithStack(errs.NotFolder)
+		}
+	}
+
+	// get tool
+	tool, err := Tools.Get(args.Tool)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed get tool")
+	}
+	// check tool is ready
+	if !tool.IsReady() {
+		// try to init tool
+		if _, err := tool.Init(); err != nil {
+			return nil, errors.Wrapf(err, "failed init tool %s", args.Tool)
 		}
 	}
 
@@ -97,4 +105,19 @@ func AddURL(ctx context.Context, args *AddURLArgs) (task.TaskExtensionInfo, erro
 	}
 	DownloadTaskManager.Add(t)
 	return t, nil
+}
+
+func tryPutUrl(ctx context.Context, storage driver.Driver, dstDirActualPath, urlStr string) bool {
+	_, ok := storage.(driver.PutURL)
+	_, okResult := storage.(driver.PutURLResult)
+	if !ok && !okResult {
+		return false
+	}
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+	dstName := path.Base(u.Path)
+	err = op.PutURL(ctx, storage, dstDirActualPath, dstName, urlStr)
+	return err == nil
 }
