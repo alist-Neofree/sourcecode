@@ -10,7 +10,7 @@ type Addition struct {
 	Token           string `json:"token" type:"string" required:"true"`
 	Owner           string `json:"owner" type:"string" required:"true"`
 	Repo            string `json:"repo" type:"string" required:"true"`
-	Ref             string `json:"ref" type:"string"`
+	Ref             string `json:"ref" type:"string" help:"A branch, a tag or a commit SHA, main branch by default."`
 	CommitterName   string `json:"committer_name" type:"string"`
 	CommitterEmail  string `json:"committer_email" type:"string"`
 	AuthorName      string `json:"author_name" type:"string"`
