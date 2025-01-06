@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"encoding/base64"
+	"encoding/json"
 
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/pkg/utils"
@@ -19,6 +21,8 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	log "github.com/sirupsen/logrus"
 )
+
+var jsonAPI = jsoniter.ConfigCompatibleWithStandardLibrary
 
 // do others that not defined in Driver interface
 
@@ -163,9 +167,10 @@ func (d *Pan123) login() error {
 		SetHeaders(map[string]string{
 			"origin":      "https://www.123pan.com",
 			"referer":     "https://www.123pan.com/",
-			"user-agent":  "Dart/2.19(dart:io)-alist",
-			"platform":    "web",
-			"app-version": "3",
+			"user-agent": "123pan/v2.4.7(Android_10.0;Oppo)",
+		        "platform": "android",
+			"app-version": "69",
+		        "x-app-version": "2.4.7",
 			//"user-agent":  base.UserAgent,
 		}).
 		SetBody(body).Post(SignIn)
@@ -194,15 +199,54 @@ func (d *Pan123) login() error {
 //	return &authKey, nil
 //}
 
+// 解密 params 并重构下载链接
+func decodeAndModifyURL(originalURL string) (string, error) {
+	parsedURL, err := url.Parse(originalURL)
+	if err != nil {
+		return "", err
+	}
+
+	// 提取 params 并解密
+	params := parsedURL.Query().Get("params")
+	if params == "" {
+		return originalURL, nil // 如果没有 params，直接返回原始 URL
+	}
+
+	decodedParams, err := base64.StdEncoding.DecodeString(params)
+	if err != nil {
+		return "", err
+	}
+
+	decodedURL, err := url.QueryUnescape(string(decodedParams))
+	if err != nil {
+		return "", err
+	}
+
+	// 修改 auto_redirect 参数
+	finalURL, err := url.Parse(decodedURL)
+	if err != nil {
+		return "", err
+	}
+	query := finalURL.Query()
+	query.Set("auto_redirect", "0")
+	finalURL.RawQuery = query.Encode()
+
+	// 重新封装 params 并返回
+	parsedURL.Query().Set("params", base64.StdEncoding.EncodeToString([]byte(finalURL.String())))
+	parsedURL.RawQuery = parsedURL.Query().Encode()
+	return parsedURL.String(), nil
+}
+
 func (d *Pan123) request(url string, method string, callback base.ReqCallback, resp interface{}) ([]byte, error) {
 	req := base.RestyClient.R()
 	req.SetHeaders(map[string]string{
 		"origin":        "https://www.123pan.com",
 		"referer":       "https://www.123pan.com/",
 		"authorization": "Bearer " + d.AccessToken,
-		"user-agent":    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) alist-client",
-		"platform":      "web",
-		"app-version":   "3",
+		"user-agent": "123pan/v2.4.7(Android_10.0;Oppo)",
+		"platform": "android",
+		"app-version": "69",
+	        "x-app-version": "2.4.7",
 		//"user-agent":    base.UserAgent,
 	})
 	if callback != nil {
@@ -221,16 +265,45 @@ func (d *Pan123) request(url string, method string, callback base.ReqCallback, r
 		return nil, err
 	}
 	body := res.Body()
-	code := utils.Json.Get(body, "code").ToInt()
+
+	// 检查返回码
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+
+	code := int(result["code"].(float64))
 	if code != 0 {
 		if code == 401 {
-			err := d.login()
-			if err != nil {
+			if err := d.login(); err != nil {
 				return nil, err
 			}
 			return d.request(url, method, callback, resp)
 		}
-		return nil, errors.New(jsoniter.Get(body, "message").ToString())
+		return nil, errors.New(result["message"].(string))
+	}
+
+	// 修改下载链接
+	if strings.Contains(url, "download_info") {
+		data, ok := result["data"].(map[string]interface{})
+		if ok {
+			downloadURL, exists := data["DownloadUrl"].(string)
+			if exists {
+				modifiedURL, err := decodeAndModifyURL(downloadURL)
+				if err != nil {
+					return nil, err
+				}
+				data["DownloadUrl"] = modifiedURL
+			}
+		}
+	
+		// 返回修改后的 JSON 数据
+		updatedBody, err := json.Marshal(result)
+		if err != nil {
+			return nil, err
+		}
+	
+		return updatedBody, nil
 	}
 	return body, nil
 }
