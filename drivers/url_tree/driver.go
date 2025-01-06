@@ -84,6 +84,9 @@ func (d *Urls) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*
 }
 
 func (d *Urls) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
+	if !d.Writable {
+		return nil, errs.PermissionDenied
+	}
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 	node := GetNodeFromRootByPath(d.root, parentDir.GetPath())
@@ -103,6 +106,9 @@ func (d *Urls) MakeDir(ctx context.Context, parentDir model.Obj, dirName string)
 }
 
 func (d *Urls) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
+	if !d.Writable {
+		return nil, errs.PermissionDenied
+	}
 	if strings.HasPrefix(dstDir.GetPath(), srcObj.GetPath()) {
 		return nil, errors.New("cannot move parent dir to child")
 	}
@@ -138,6 +144,9 @@ func (d *Urls) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, e
 }
 
 func (d *Urls) Rename(ctx context.Context, srcObj model.Obj, newName string) (model.Obj, error) {
+	if !d.Writable {
+		return nil, errs.PermissionDenied
+	}
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 	srcNode := GetNodeFromRootByPath(d.root, srcObj.GetPath())
@@ -150,6 +159,9 @@ func (d *Urls) Rename(ctx context.Context, srcObj model.Obj, newName string) (mo
 }
 
 func (d *Urls) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
+	if !d.Writable {
+		return nil, errs.PermissionDenied
+	}
 	if strings.HasPrefix(dstDir.GetPath(), srcObj.GetPath()) {
 		return nil, errors.New("cannot copy parent dir to child")
 	}
@@ -171,6 +183,9 @@ func (d *Urls) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, e
 }
 
 func (d *Urls) Remove(ctx context.Context, obj model.Obj) error {
+	if !d.Writable {
+		return errs.PermissionDenied
+	}
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 	objDir, objName := stdpath.Split(obj.GetPath())
@@ -199,6 +214,9 @@ func (d *Urls) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *Urls) PutURL(ctx context.Context, dstDir model.Obj, name, url string) (model.Obj, error) {
+	if !d.Writable {
+		return nil, errs.PermissionDenied
+	}
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 	dirNode := GetNodeFromRootByPath(d.root, dstDir.GetPath())
@@ -222,6 +240,10 @@ func (d *Urls) PutURL(ctx context.Context, dstDir model.Obj, name, url string) (
 	}
 	d.updateStorage()
 	return nodeToObj(newNode, stdpath.Join(dstDir.GetPath(), name))
+}
+
+func (d *Urls) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
+	return errs.UploadNotSupported
 }
 
 func (d *Urls) updateStorage() {
