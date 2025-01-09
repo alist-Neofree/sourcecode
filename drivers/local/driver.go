@@ -79,6 +79,9 @@ func (d *Local) Init(ctx context.Context) error {
 	} else {
 		d.thumbTokenBucket = NewStaticTokenBucketWithMigration(d.thumbTokenBucket, d.thumbConcurrency)
 	}
+	if d.VideoThumbPercent < 0 || d.VideoThumbPercent > 100 {
+		d.VideoThumbPercent = 20
+	}
 	return nil
 }
 

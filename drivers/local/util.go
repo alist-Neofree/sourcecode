@@ -2,11 +2,13 @@ package local
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/alist-org/alist/v3/internal/conf"
@@ -34,10 +36,34 @@ func isSymlinkDir(f fs.FileInfo, path string) bool {
 	return false
 }
 
-func GetSnapshot(videoPath string, frameNum int) (imgData *bytes.Buffer, err error) {
+// Get the snapshot of the video at certain percentage of the video duration
+func GetSnapshot(videoPath string, percentage int) (imgData *bytes.Buffer, err error) {
+	// Run ffprobe to get the video duration
+	jsonOutput, err := ffmpeg.Probe(videoPath)
+	if err != nil {
+		return nil, err
+	}
+	// get format.duration from the json string
+	type probeFormat struct {
+		Duration string `json:"duration"`
+	}
+	type probeData struct {
+		Format probeFormat `json:"format"`
+	}
+	var probe probeData
+	err = json.Unmarshal([]byte(jsonOutput), &probe)
+	if err != nil {
+		return nil, err
+	}
+	totalDuration, err := strconv.ParseFloat(probe.Format.Duration, 64)
+	if err != nil {
+		return nil, err
+	}
+	ss := fmt.Sprintf("%f", totalDuration*float64(percentage)/100)
+
+	// Run ffmpeg to get the snapshot
 	srcBuf := bytes.NewBuffer(nil)
-	stream := ffmpeg.Input(videoPath).
-		Filter("select", ffmpeg.Args{fmt.Sprintf("gte(n,%d)", frameNum)}).
+	stream := ffmpeg.Input(videoPath, ffmpeg.KwArgs{"ss": ss}).
 		Output("pipe:", ffmpeg.KwArgs{"vframes": 1, "format": "image2", "vcodec": "mjpeg"}).
 		GlobalArgs("-loglevel", "error").Silent(true).
 		WithOutput(srcBuf, os.Stdout)
@@ -77,7 +103,7 @@ func (d *Local) getThumb(file model.Obj) (*bytes.Buffer, *string, error) {
 	}
 	var srcBuf *bytes.Buffer
 	if utils.GetFileType(file.GetName()) == conf.VIDEO {
-		videoBuf, err := GetSnapshot(fullPath, 10)
+		videoBuf, err := GetSnapshot(fullPath, d.VideoThumbPercent)
 		if err != nil {
 			return nil, nil, err
 		}
