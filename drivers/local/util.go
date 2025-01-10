@@ -36,8 +36,8 @@ func isSymlinkDir(f fs.FileInfo, path string) bool {
 	return false
 }
 
-// Get the snapshot of the video at certain percentage of the video duration
-func GetSnapshot(videoPath string, percentage int) (imgData *bytes.Buffer, err error) {
+// Get the snapshot of the video
+func (d *Local) GetSnapshot(videoPath string) (imgData *bytes.Buffer, err error) {
 	// Run ffprobe to get the video duration
 	jsonOutput, err := ffmpeg.Probe(videoPath)
 	if err != nil {
@@ -59,11 +59,35 @@ func GetSnapshot(videoPath string, percentage int) (imgData *bytes.Buffer, err e
 	if err != nil {
 		return nil, err
 	}
-	ss := fmt.Sprintf("%f", totalDuration*float64(percentage)/100)
+
+	var ss string
+	if strings.HasSuffix(d.VideoThumbPos, "%") {
+		percentage, err := strconv.ParseFloat(strings.TrimSuffix(d.VideoThumbPos, "%"), 64)
+		if err != nil {
+			return nil, err
+		}
+		ss = fmt.Sprintf("%f", totalDuration*percentage/100)
+	} else {
+		val, err := strconv.ParseFloat(d.VideoThumbPos, 64)
+		if err != nil {
+			return nil, err
+		}
+		// If the value is greater than the total duration, use the total duration
+		if val > totalDuration {
+			ss = fmt.Sprintf("%f", totalDuration)
+		} else {
+			ss = d.VideoThumbPos
+		}
+	}
 
 	// Run ffmpeg to get the snapshot
 	srcBuf := bytes.NewBuffer(nil)
-	stream := ffmpeg.Input(videoPath, ffmpeg.KwArgs{"ss": ss}).
+	// If the remaining time from the seek point to the end of the video is less
+	// than the duration of a single frame, ffmpeg cannot extract any frames
+	// within the specified range and will exit with an error.
+	// The "noaccurate_seek" option prevents this error and would also speed up
+	// the seek process.
+	stream := ffmpeg.Input(videoPath, ffmpeg.KwArgs{"ss": ss, "noaccurate_seek": ""}).
 		Output("pipe:", ffmpeg.KwArgs{"vframes": 1, "format": "image2", "vcodec": "mjpeg"}).
 		GlobalArgs("-loglevel", "error").Silent(true).
 		WithOutput(srcBuf, os.Stdout)
@@ -103,7 +127,7 @@ func (d *Local) getThumb(file model.Obj) (*bytes.Buffer, *string, error) {
 	}
 	var srcBuf *bytes.Buffer
 	if utils.GetFileType(file.GetName()) == conf.VIDEO {
-		videoBuf, err := GetSnapshot(fullPath, d.VideoThumbPercent)
+		videoBuf, err := d.GetSnapshot(fullPath)
 		if err != nil {
 			return nil, nil, err
 		}
