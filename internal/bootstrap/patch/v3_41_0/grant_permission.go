@@ -14,8 +14,8 @@ func GrantAdminPermissions() {
 	}
 	if (admin.Permission & 0x3FF) == 0 {
 		admin.Permission |= 0x3FF
+		err = op.UpdateUser(admin)
 	}
-	err = op.UpdateUser(admin)
 	if err != nil {
 		utils.Log.Errorf("Cannot grant permissions to admin: %v", err)
 	}

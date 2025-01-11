@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"fmt"
+
 	"github.com/alist-org/alist/v3/internal/bootstrap/patch"
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/pkg/utils"
@@ -39,6 +40,11 @@ func compareVersion(majorA, minorA, patchNumA, majorB, minorB, patchNumB int) bo
 
 func InitUpgradePatch() {
 	if conf.Version == "dev" {
+		for _, vp := range patch.UpgradePatches {
+			for i, p := range vp.Patches {
+				safeCall(vp.Version, i, p)
+			}
+		}
 		return
 	}
 	if LastLaunchedVersion == conf.Version {
