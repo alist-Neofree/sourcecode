@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 
 	"github.com/alist-org/alist/v3/internal/errs"
@@ -60,6 +61,8 @@ func (f *FileStream) Close() error {
 		err2 = os.RemoveAll(f.tmpFile.Name())
 		if err2 != nil {
 			err2 = errs.NewErr(err2, "failed to remove tmpFile [%s]", f.tmpFile.Name())
+		} else {
+			f.tmpFile = nil
 		}
 	}
 
@@ -83,6 +86,26 @@ func (f *FileStream) CacheFullInTempFile() (model.File, error) {
 		return file, nil
 	}
 	tmpF, err := utils.CreateTempFile(f.Reader, f.GetSize())
+	if err != nil {
+		return nil, err
+	}
+	f.Add(tmpF)
+	f.tmpFile = tmpF
+	f.Reader = tmpF
+	return f.tmpFile, nil
+}
+
+func (f *FileStream) CacheFullInTempFileAndUpdateProgress(up model.UpdateProgress) (model.File, error) {
+	if f.tmpFile != nil {
+		return f.tmpFile, nil
+	}
+	if file, ok := f.Reader.(model.File); ok {
+		return file, nil
+	}
+	tmpF, err := utils.CreateTempFile(&ReaderUpdatingProgress{
+		Reader:         f,
+		UpdateProgress: up,
+	}, f.GetSize())
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +270,139 @@ func (ss *SeekableStream) CacheFullInTempFile() (model.File, error) {
 	return ss.tmpFile, nil
 }
 
+func (ss *SeekableStream) CacheFullInTempFileAndUpdateProgress(up model.UpdateProgress) (model.File, error) {
+	if ss.tmpFile != nil {
+		return ss.tmpFile, nil
+	}
+	if ss.mFile != nil {
+		return ss.mFile, nil
+	}
+	tmpF, err := utils.CreateTempFile(&ReaderUpdatingProgress{
+		Reader:         ss,
+		UpdateProgress: up,
+	}, ss.GetSize())
+	if err != nil {
+		return nil, err
+	}
+	ss.Add(tmpF)
+	ss.tmpFile = tmpF
+	ss.Reader = tmpF
+	return ss.tmpFile, nil
+}
+
 func (f *FileStream) SetTmpFile(r *os.File) {
 	f.Reader = r
 	f.tmpFile = r
+}
+
+type ReaderWithSize interface {
+	io.Reader
+	GetSize() int64
+}
+
+type SimpleReaderWithSize struct {
+	io.Reader
+	Size int64
+}
+
+func (r *SimpleReaderWithSize) GetSize() int64 {
+	return r.Size
+}
+
+type ReaderUpdatingProgress struct {
+	Reader ReaderWithSize
+	model.UpdateProgress
+	offset int
+}
+
+func (r *ReaderUpdatingProgress) Read(p []byte) (n int, err error) {
+	n, err = r.Reader.Read(p)
+	r.offset += n
+	r.UpdateProgress(math.Min(100.0, float64(r.offset)/float64(r.Reader.GetSize())*100.0))
+	return n, err
+}
+
+type ReadAtSeeker struct {
+	ss     *SeekableStream
+	reader io.Reader
+	cur    int64
+}
+
+func NewReadAtSeeker(ss *SeekableStream, offset int64) (*ReadAtSeeker, error) {
+	var r io.Reader
+	var err error
+	if offset != 0 {
+		if offset < 0 || offset > ss.GetSize() {
+			return nil, errors.New("offset out of range")
+		}
+		r, err = ss.RangeRead(http_range.Range{Start: offset, Length: -1})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		r = ss
+	}
+	return &ReadAtSeeker{
+		ss:     ss,
+		reader: r,
+		cur:    offset,
+	}, nil
+}
+
+func (r *ReadAtSeeker) GetRawStream() *SeekableStream {
+	return r.ss
+}
+
+func (r *ReadAtSeeker) ReadAt(p []byte, off int64) (int, error) {
+	reader, err := r.ss.RangeRead(http_range.Range{Start: off, Length: int64(len(p))})
+	if err != nil {
+		return 0, err
+	}
+	num := 0
+	for num < len(p) {
+		n, err := reader.Read(p[num:])
+		num += n
+		if err != nil {
+			return num, err
+		}
+	}
+	return num, nil
+}
+
+func (r *ReadAtSeeker) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		break
+	case io.SeekCurrent:
+		offset += r.cur
+		break
+	case io.SeekEnd:
+		offset += r.ss.GetSize()
+		break
+	default:
+		return 0, errs.NotSupport
+	}
+	if offset < 0 {
+		return r.cur, errors.New("invalid seek: negative position")
+	}
+	if offset > r.ss.GetSize() {
+		return r.cur, io.EOF
+	}
+	reader, err := r.ss.RangeRead(http_range.Range{Start: offset, Length: -1})
+	if err != nil {
+		return r.cur, err
+	}
+	r.cur = offset
+	r.reader = reader
+	return offset, nil
+}
+
+func (r *ReadAtSeeker) Read(p []byte) (n int, err error) {
+	n, err = r.reader.Read(p)
+	r.cur += int64(n)
+	return n, err
+}
+
+func (r *ReadAtSeeker) Close() error {
+	return r.ss.Close()
 }

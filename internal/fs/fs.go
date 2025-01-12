@@ -109,6 +109,38 @@ func PutAsTask(ctx context.Context, dstDirPath string, file model.FileStreamer) 
 	return t, err
 }
 
+func ArchiveMeta(ctx context.Context, path string, args model.ArchiveMetaArgs) (model.ArchiveMeta, error) {
+	meta, err := archiveMeta(ctx, path, args)
+	if err != nil {
+		log.Errorf("failed get archive meta %s: %+v", path, err)
+	}
+	return meta, err
+}
+
+func ArchiveList(ctx context.Context, path string, args model.ArchiveListArgs) ([]model.Obj, error) {
+	objs, err := archiveList(ctx, path, args)
+	if err != nil {
+		log.Errorf("failed list archive [%s]%s: %+v", path, args.InnerPath, err)
+	}
+	return objs, err
+}
+
+func ArchiveDecompress(ctx context.Context, srcObjPath, dstDirPath string, args model.ArchiveDecompressArgs, lazyCache ...bool) (task.TaskExtensionInfo, error) {
+	t, err := archiveDecompress(ctx, srcObjPath, dstDirPath, args, lazyCache...)
+	if err != nil {
+		log.Errorf("failed decompress [%s]%s: %+v", srcObjPath, args.InnerPath, err)
+	}
+	return t, err
+}
+
+func ArchiveExtract(ctx context.Context, path string, args model.ArchiveInnerArgs) (*model.Link, model.Obj, error) {
+	l, obj, err := archiveExtract(ctx, path, args)
+	if err != nil {
+		log.Errorf("failed extract [%s]%s: %+v", path, args.InnerPath, err)
+	}
+	return l, obj, err
+}
+
 type GetStoragesArgs struct {
 }
 
