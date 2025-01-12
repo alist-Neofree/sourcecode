@@ -144,3 +144,7 @@ func NewProgress(total int64, up UpdateProgress) *Progress {
 		up:    up,
 	}
 }
+
+type Reference interface {
+	InitReference(storage Driver) error
+}
