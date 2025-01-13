@@ -16,6 +16,14 @@ func RegisterTool(tool Tool) {
 	}
 }
 
+func GetArchiveTool(ext string) (Tool, error) {
+	t, ok := Tools[ext]
+	if !ok {
+		return nil, errs.UnknownArchiveFormat
+	}
+	return t, nil
+}
+
 type SequentialFile struct {
 	Reader io.ReadCloser
 }

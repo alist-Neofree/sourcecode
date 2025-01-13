@@ -159,7 +159,7 @@ type ArchiveDecompressResult interface {
 	ArchiveDecompress(ctx context.Context, srcObj, dstDir model.Obj, args model.ArchiveDecompressArgs) ([]model.Obj, error)
 }
 
-type UpdateProgress func(percentage float64)
+type UpdateProgress model.UpdateProgress
 
 type Progress struct {
 	Total int64

@@ -18,7 +18,7 @@ import (
 
 type FileDownloadProxy struct {
 	ftpserver.FileTransfer
-	reader *stream.ReadAtSeeker
+	reader stream.SStreamReadAtSeeker
 }
 
 func OpenDownload(ctx context.Context, reqPath string, offset int64) (*FileDownloadProxy, error) {

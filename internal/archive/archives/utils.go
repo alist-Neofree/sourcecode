@@ -19,7 +19,7 @@ func getFs(ss *stream.SeekableStream, args model.ArchiveArgs) (*archives.Archive
 	}
 	format, _, err := archives.Identify(ss.Ctx, ss.GetName(), reader)
 	if err != nil {
-		return nil, err
+		return nil, errs.UnknownArchiveFormat
 	}
 	extractor, ok := format.(archives.Extractor)
 	if !ok {

@@ -57,7 +57,7 @@ func getArchiveToolAndStream(ctx context.Context, storage driver.Driver, path st
 		return nil, nil, nil, errors.WithMessagef(err, "failed get [%s] link", path)
 	}
 	ext := stdpath.Ext(obj.GetName())
-	t, err := GetArchiveTool(ext)
+	t, err := tool.GetArchiveTool(ext)
 	if err != nil {
 		return nil, nil, nil, errors.WithMessagef(err, "failed get [%s] archive tool", ext)
 	}
@@ -404,12 +404,4 @@ func ArchiveDecompress(ctx context.Context, storage driver.Driver, srcPath, dstD
 		return errs.NotImplement
 	}
 	return errors.WithStack(err)
-}
-
-func GetArchiveTool(ext string) (tool.Tool, error) {
-	t, ok := tool.Tools[ext]
-	if !ok {
-		return nil, errs.UnknownArchiveFormat
-	}
-	return t, nil
 }

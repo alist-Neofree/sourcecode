@@ -105,15 +105,13 @@ func (t *ArchiveDownloadTask) RunWithoutPushUploadTask() (*ArchiveContentUploadT
 	if err != nil {
 		return nil, err
 	}
-	baseName := ""
-	if t.PutIntoNewDir {
-		baseName, _, _ = strings.Cut(srcObj.GetName(), ".")
-	}
+	baseName, _, _ := strings.Cut(srcObj.GetName(), ".")
 	uploadTask := &ArchiveContentUploadTask{
 		TaskExtension: task.TaskExtension{
 			Creator: t.GetCreator(),
 		},
 		ObjName:      baseName,
+		InPlace:      !t.PutIntoNewDir,
 		FilePath:     dir,
 		DstDirPath:   t.DstDirPath,
 		dstStorage:   t.dstStorage,
@@ -128,6 +126,7 @@ type ArchiveContentUploadTask struct {
 	task.TaskExtension
 	status       string
 	ObjName      string
+	InPlace      bool
 	FilePath     string
 	DstDirPath   string
 	dstStorage   driver.Driver
@@ -163,8 +162,9 @@ func (t *ArchiveContentUploadTask) RunWithNextTaskCallback(f func(nextTsk *Archi
 		return err
 	}
 	if info.IsDir() {
+		t.status = "src object is dir, listing objs"
 		nextDstPath := t.DstDirPath
-		if t.ObjName != "" {
+		if !t.InPlace {
 			nextDstPath = stdpath.Join(nextDstPath, t.ObjName)
 			err = op.MakeDir(t.Ctx(), t.dstStorage, nextDstPath)
 			if err != nil {
@@ -192,6 +192,7 @@ func (t *ArchiveContentUploadTask) RunWithNextTaskCallback(f func(nextTsk *Archi
 					Creator: t.GetCreator(),
 				},
 				ObjName:      entry.Name(),
+				InPlace:      false,
 				FilePath:     nextFilePath,
 				DstDirPath:   nextDstPath,
 				dstStorage:   t.dstStorage,
@@ -201,7 +202,9 @@ func (t *ArchiveContentUploadTask) RunWithNextTaskCallback(f func(nextTsk *Archi
 				es = stderrors.Join(es, err)
 			}
 		}
-		return es
+		if es != nil {
+			return es
+		}
 	} else {
 		t.SetTotalBytes(info.Size())
 		file, err := os.Open(t.FilePath)
@@ -270,7 +273,7 @@ func genTempFileName(prefix string) (string, error) {
 }
 
 type archiveContentUploadTaskManagerType struct {
-	tache.Manager[*ArchiveContentUploadTask]
+	*tache.Manager[*ArchiveContentUploadTask]
 }
 
 func (m *archiveContentUploadTaskManagerType) Remove(id string) {
@@ -280,7 +283,30 @@ func (m *archiveContentUploadTaskManagerType) Remove(id string) {
 	}
 }
 
-var ArchiveContentUploadTaskManager *archiveContentUploadTaskManagerType
+func (m *archiveContentUploadTaskManagerType) RemoveAll() {
+	tasks := m.GetAll()
+	for _, t := range tasks {
+		m.Remove(t.GetID())
+	}
+}
+
+func (m *archiveContentUploadTaskManagerType) RemoveByState(state ...tache.State) {
+	tasks := m.GetByState(state...)
+	for _, t := range tasks {
+		m.Remove(t.GetID())
+	}
+}
+
+func (m *archiveContentUploadTaskManagerType) RemoveByCondition(condition func(task *ArchiveContentUploadTask) bool) {
+	tasks := m.GetByCondition(condition)
+	for _, t := range tasks {
+		m.Remove(t.GetID())
+	}
+}
+
+var ArchiveContentUploadTaskManager = &archiveContentUploadTaskManagerType{
+	Manager: nil,
+}
 
 func archiveMeta(ctx context.Context, path string, args model.ArchiveMetaArgs) (model.ArchiveMeta, error) {
 	storage, actualPath, err := op.GetStorageAndActualPath(path)
@@ -314,12 +340,12 @@ func archiveDecompress(ctx context.Context, srcObjPath, dstDirPath string, args 
 		}
 	}
 	ext := stdpath.Ext(srcObjActualPath)
-	tool, err := op.GetArchiveTool(ext)
+	t, err := tool.GetArchiveTool(ext)
 	if err != nil {
 		return nil, errors.WithMessagef(err, "failed get [%s] archive tool", ext)
 	}
 	taskCreator, _ := ctx.Value("user").(*model.User)
-	t := &ArchiveDownloadTask{
+	tsk := &ArchiveDownloadTask{
 		TaskExtension: task.TaskExtension{
 			Creator: taskCreator,
 		},
@@ -330,10 +356,10 @@ func archiveDecompress(ctx context.Context, srcObjPath, dstDirPath string, args 
 		DstDirPath:            dstDirActualPath,
 		SrcStorageMp:          srcStorage.GetStorage().MountPath,
 		DstStorageMp:          dstStorage.GetStorage().MountPath,
-		Tool:                  tool,
+		Tool:                  t,
 	}
 	if ctx.Value(conf.NoTaskKey) != nil {
-		uploadTask, err := t.RunWithoutPushUploadTask()
+		uploadTask, err := tsk.RunWithoutPushUploadTask()
 		if err != nil {
 			return nil, errors.WithMessagef(err, "failed download [%s]", srcObjPath)
 		}
@@ -346,8 +372,8 @@ func archiveDecompress(ctx context.Context, srcObjPath, dstDirPath string, args 
 		}
 		return nil, uploadTask.RunWithNextTaskCallback(callback)
 	} else {
-		ArchiveDownloadTaskManager.Add(t)
-		return t, nil
+		ArchiveDownloadTaskManager.Add(tsk)
+		return tsk, nil
 	}
 }
 

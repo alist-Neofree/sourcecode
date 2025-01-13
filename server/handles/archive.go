@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 	stdpath "path"
+	"strings"
 )
 
 type ArchiveMetaReq struct {
@@ -100,7 +101,12 @@ func FsArchiveMeta(c *gin.Context) {
 		Refresh:     req.Refresh,
 	})
 	if err != nil {
-		common.ErrorResp(c, err, 500)
+		if errors.Is(err, errs.WrongArchivePassword) {
+			common.ErrorResp(c, err, 202)
+		} else {
+			common.ErrorResp(c, err, 500)
+		}
+		return
 	}
 	common.SuccessResp(c, ArchiveMetaResp{
 		Comment:     ret.GetComment(),
@@ -164,7 +170,12 @@ func FsArchiveList(c *gin.Context) {
 		Refresh: req.Refresh,
 	})
 	if err != nil {
-		common.ErrorResp(c, err, 500)
+		if errors.Is(err, errs.WrongArchivePassword) {
+			common.ErrorResp(c, err, 202)
+		} else {
+			common.ErrorResp(c, err, 500)
+		}
+		return
 	}
 	total, objs := pagination(objs, &req.PageReq)
 	ret, _ := utils.SliceConvert(objs, func(src model.Obj) (ObjResp, error) {
@@ -177,8 +188,9 @@ func FsArchiveList(c *gin.Context) {
 }
 
 type ArchiveDecompressReq struct {
-	SrcPath       string `json:"src_path" form:"src_path"`
+	SrcDir        string `json:"src_dir" form:"src_dir"`
 	DstDir        string `json:"dst_dir" form:"dst_dir"`
+	Name          string `json:"name" form:"name"`
 	ArchivePass   string `json:"archive_pass" form:"archive_pass"`
 	InnerPath     string `json:"inner_path" form:"inner_path"`
 	CacheFull     bool   `json:"cache_full" form:"cache_full"`
@@ -196,7 +208,7 @@ func FsArchiveDecompress(c *gin.Context) {
 		common.ErrorResp(c, errs.PermissionDenied, 403)
 		return
 	}
-	srcPath, err := user.JoinPath(req.SrcPath)
+	srcPath, err := user.JoinPath(stdpath.Join(req.SrcDir, req.Name))
 	if err != nil {
 		common.ErrorResp(c, err, 403)
 		return
@@ -222,10 +234,16 @@ func FsArchiveDecompress(c *gin.Context) {
 		PutIntoNewDir: req.PutIntoNewDir,
 	})
 	if err != nil {
-		common.ErrorResp(c, err, 500)
+		if errors.Is(err, errs.WrongArchivePassword) {
+			common.ErrorResp(c, err, 202)
+		} else {
+			common.ErrorResp(c, err, 500)
+		}
 		return
 	}
-	common.SuccessResp(c, t)
+	common.SuccessResp(c, gin.H{
+		"task": getTaskInfo(t),
+	})
 }
 
 func ArchiveDown(c *gin.Context) {
@@ -264,8 +282,8 @@ func ArchiveDown(c *gin.Context) {
 
 func ArchiveProxy(c *gin.Context) {
 	archiveRawPath := c.MustGet("path").(string)
-	innerPath := utils.FixAndCleanPath(c.Query("inner_path"))
-	password := c.Query("password")
+	innerPath := utils.FixAndCleanPath(c.Query("inner"))
+	password := c.Query("pass")
 	filename := stdpath.Base(innerPath)
 	storage, err := fs.GetStorage(archiveRawPath, &fs.GetStoragesArgs{})
 	if err != nil {
@@ -299,7 +317,7 @@ func ArchiveProxy(c *gin.Context) {
 func ArchiveExtensions(c *gin.Context) {
 	var ext []string
 	for key := range tool.Tools {
-		ext = append(ext, key)
+		ext = append(ext, strings.TrimPrefix(key, "."))
 	}
 	common.SuccessResp(c, ext)
 }

@@ -322,16 +322,37 @@ func (r *ReaderUpdatingProgress) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
-type ReadAtSeeker struct {
-	ss     *SeekableStream
+type SStreamReadAtSeeker interface {
+	model.File
+	GetRawStream() *SeekableStream
+}
+
+type readerCur struct {
 	reader io.Reader
 	cur    int64
 }
 
-func NewReadAtSeeker(ss *SeekableStream, offset int64) (*ReadAtSeeker, error) {
+type RangeReadReadAtSeeker struct {
+	ss      *SeekableStream
+	master  int
+	readers []*readerCur
+}
+
+type FileReadAtSeeker struct {
+	ss *SeekableStream
+}
+
+func NewReadAtSeeker(ss *SeekableStream, offset int64, forceRange ...bool) (SStreamReadAtSeeker, error) {
+	if ss.mFile != nil {
+		_, err := ss.mFile.Seek(offset, io.SeekStart)
+		if err != nil {
+			return nil, err
+		}
+		return &FileReadAtSeeker{ss: ss}, nil
+	}
 	var r io.Reader
 	var err error
-	if offset != 0 {
+	if offset != 0 || utils.IsBool(forceRange...) {
 		if offset < 0 || offset > ss.GetSize() {
 			return nil, errors.New("offset out of range")
 		}
@@ -339,28 +360,50 @@ func NewReadAtSeeker(ss *SeekableStream, offset int64) (*ReadAtSeeker, error) {
 		if err != nil {
 			return nil, err
 		}
+		if rc, ok := r.(io.Closer); ok {
+			ss.Closers.Add(rc)
+		}
 	} else {
 		r = ss
 	}
-	return &ReadAtSeeker{
-		ss:     ss,
-		reader: r,
-		cur:    offset,
+	return &RangeReadReadAtSeeker{
+		ss:      ss,
+		master:  0,
+		readers: []*readerCur{{reader: r, cur: offset}},
 	}, nil
 }
 
-func (r *ReadAtSeeker) GetRawStream() *SeekableStream {
+func (r *RangeReadReadAtSeeker) GetRawStream() *SeekableStream {
 	return r.ss
 }
 
-func (r *ReadAtSeeker) ReadAt(p []byte, off int64) (int, error) {
-	reader, err := r.ss.RangeRead(http_range.Range{Start: off, Length: int64(len(p))})
+func (r *RangeReadReadAtSeeker) getReaderAtOffset(off int64) (int, *readerCur, error) {
+	for i, reader := range r.readers {
+		if reader.cur == off {
+			return i, reader, nil
+		}
+	}
+	reader, err := r.ss.RangeRead(http_range.Range{Start: off, Length: -1})
+	if err != nil {
+		return 0, nil, err
+	}
+	if c, ok := reader.(io.Closer); ok {
+		r.ss.Closers.Add(c)
+	}
+	rc := &readerCur{reader: reader, cur: off}
+	r.readers = append(r.readers, rc)
+	return len(r.readers) - 1, rc, nil
+}
+
+func (r *RangeReadReadAtSeeker) ReadAt(p []byte, off int64) (int, error) {
+	_, rc, err := r.getReaderAtOffset(off)
 	if err != nil {
 		return 0, err
 	}
 	num := 0
 	for num < len(p) {
-		n, err := reader.Read(p[num:])
+		n, err := rc.reader.Read(p[num:])
+		rc.cur += int64(n)
 		num += n
 		if err != nil {
 			return num, err
@@ -369,40 +412,59 @@ func (r *ReadAtSeeker) ReadAt(p []byte, off int64) (int, error) {
 	return num, nil
 }
 
-func (r *ReadAtSeeker) Seek(offset int64, whence int) (int64, error) {
+func (r *RangeReadReadAtSeeker) Seek(offset int64, whence int) (int64, error) {
 	switch whence {
 	case io.SeekStart:
-		break
 	case io.SeekCurrent:
-		offset += r.cur
-		break
+		if offset == 0 {
+			return r.readers[r.master].cur, nil
+		}
+		offset += r.readers[r.master].cur
 	case io.SeekEnd:
 		offset += r.ss.GetSize()
-		break
 	default:
 		return 0, errs.NotSupport
 	}
 	if offset < 0 {
-		return r.cur, errors.New("invalid seek: negative position")
+		return r.readers[r.master].cur, errors.New("invalid seek: negative position")
 	}
 	if offset > r.ss.GetSize() {
-		return r.cur, io.EOF
+		return r.readers[r.master].cur, io.EOF
 	}
-	reader, err := r.ss.RangeRead(http_range.Range{Start: offset, Length: -1})
+	i, _, err := r.getReaderAtOffset(offset)
 	if err != nil {
-		return r.cur, err
+		return r.readers[r.master].cur, err
 	}
-	r.cur = offset
-	r.reader = reader
-	return offset, nil
+	r.master = i
+	return r.readers[r.master].cur, nil
 }
 
-func (r *ReadAtSeeker) Read(p []byte) (n int, err error) {
-	n, err = r.reader.Read(p)
-	r.cur += int64(n)
+func (r *RangeReadReadAtSeeker) Read(p []byte) (n int, err error) {
+	n, err = r.readers[r.master].reader.Read(p)
+	r.readers[r.master].cur += int64(n)
 	return n, err
 }
 
-func (r *ReadAtSeeker) Close() error {
+func (r *RangeReadReadAtSeeker) Close() error {
 	return r.ss.Close()
+}
+
+func (f *FileReadAtSeeker) GetRawStream() *SeekableStream {
+	return f.ss
+}
+
+func (f *FileReadAtSeeker) Read(p []byte) (n int, err error) {
+	return f.ss.mFile.Read(p)
+}
+
+func (f *FileReadAtSeeker) ReadAt(p []byte, off int64) (n int, err error) {
+	return f.ss.mFile.ReadAt(p, off)
+}
+
+func (f *FileReadAtSeeker) Seek(offset int64, whence int) (int64, error) {
+	return f.ss.mFile.Seek(offset, whence)
+}
+
+func (f *FileReadAtSeeker) Close() error {
+	return f.ss.Close()
 }

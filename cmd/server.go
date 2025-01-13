@@ -6,6 +6,7 @@ import (
 	"fmt"
 	ftpserver "github.com/KirCute/ftpserverlib-pasvportmap"
 	"github.com/KirCute/sftpd-alist"
+	"github.com/alist-org/alist/v3/internal/fs"
 	"net"
 	"net/http"
 	"os"
@@ -40,6 +41,7 @@ the address is defined in config file`,
 		bootstrap.InitOfflineDownloadTools()
 		bootstrap.LoadStorages()
 		bootstrap.InitTaskManager()
+		defer fs.ArchiveContentUploadTaskManager.RemoveAll()
 		if !flags.Debug && !flags.Dev {
 			gin.SetMode(gin.ReleaseMode)
 		}
