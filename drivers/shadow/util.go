@@ -1,44 +1,66 @@
-package crypt
+package shadow
 
 import (
-	stdpath "path"
-	"path/filepath"
-	"strings"
-
 	"github.com/alist-org/alist/v3/internal/op"
+	stdpath "path"
+	"strings"
 )
 
-// will give the best guessing based on the path
-func guessPath(path string) (isFolder, secondTry bool) {
-	if strings.HasSuffix(path, "/") {
-		//confirmed a folder
-		return true, false
-	}
-	lastSlash := strings.LastIndex(path, "/")
-	if strings.Index(path[lastSlash:], ".") < 0 {
-		//no dot, try folder then try file
-		return true, true
-	}
-	return false, true
-}
-
-func (d *Crypt) getPathForRemote(path string, isFolder bool) (remoteFullPath string) {
+func (d *Shadow) getPathForRemote(path string, isFolder bool) (string, error) {
 	if isFolder && !strings.HasSuffix(path, "/") {
 		path = path + "/"
 	}
-	dir, fileName := filepath.Split(path)
 
-	remoteDir := d.cipher.EncryptDirName(dir)
-	remoteFileName := ""
-	if len(strings.TrimSpace(fileName)) > 0 {
-		remoteFileName = d.cipher.EncryptFileName(fileName)
+	encodePath, err := encodePath(path, d.MaxFilenameLen)
+	if err != nil {
+		return "", err
 	}
-	return stdpath.Join(d.RemotePath, remoteDir, remoteFileName)
-
+	return stdpath.Join(d.RemotePath, encodePath), nil
 }
 
 // actual path is used for internal only. any link for user should come from remoteFullPath
-func (d *Crypt) getActualPathForRemote(path string, isFolder bool) (string, error) {
-	_, remoteActualPath, err := op.GetStorageAndActualPath(d.getPathForRemote(path, isFolder))
+func (d *Shadow) getActualPathForRemote(path string, isFolder bool) (string, error) {
+	remote, err := d.getPathForRemote(path, isFolder)
+	if err != nil {
+		return "", err
+	}
+	_, remoteActualPath, err := op.GetStorageAndActualPath(remote)
 	return remoteActualPath, err
+}
+
+func SplitString(s string, n int) []string {
+	var result []string
+	runes := []rune(s)
+	length := len(runes)
+	for i := 0; i < length; i += n {
+		end := i + n
+		if end > length {
+			end = length
+		}
+		result = append(result, string(runes[i:end]))
+	}
+	return result
+}
+
+func encodePath(path string, maxSegmentLen int) (string, error) {
+	segments := strings.Split(path, "/")
+	var paths []string
+	for i, name := range segments {
+		if segments[i] == "" {
+			continue
+		}
+		encodeName, err := splitName(name, maxSegmentLen, 0)
+		if err != nil {
+			return "", err
+		}
+		paths = append(paths, encodeName[0])
+	}
+	p := strings.Join(paths, "/")
+	if strings.HasPrefix(path, "/") {
+		p = "/" + p
+	}
+	if strings.HasSuffix(path, "/") {
+		p += "/"
+	}
+	return p, nil
 }
