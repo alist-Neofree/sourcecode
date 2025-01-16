@@ -1,32 +1,31 @@
 package shadow
 
 import (
-	"github.com/alist-org/alist/v3/internal/op"
 	stdpath "path"
 	"strings"
 )
 
-func (d *Shadow) getPathForRemote(path string, isFolder bool) (string, error) {
-	if isFolder && !strings.HasSuffix(path, "/") {
-		path = path + "/"
-	}
-
-	encodePath, err := encodePath(path, d.MaxFilenameLen)
-	if err != nil {
-		return "", err
-	}
-	return stdpath.Join(d.RemotePath, encodePath), nil
-}
-
-// actual path is used for internal only. any link for user should come from remoteFullPath
-func (d *Shadow) getActualPathForRemote(path string, isFolder bool) (string, error) {
-	remote, err := d.getPathForRemote(path, isFolder)
-	if err != nil {
-		return "", err
-	}
-	_, remoteActualPath, err := op.GetStorageAndActualPath(remote)
-	return remoteActualPath, err
-}
+//func (d *Shadow) getPathForRemote(path string, isFolder bool) (string, error) {
+//	if isFolder && !strings.HasSuffix(path, "/") {
+//		path = path + "/"
+//	}
+//
+//	encodedPath, err := encodePath(path, d.MaxFilenameLen)
+//	if err != nil {
+//		return "", err
+//	}
+//	return stdpath.Join(d.RemotePath, encodedPath), nil
+//}
+//
+//// actual path is used for internal only. any link for user should come from remoteFullPath
+//func (d *Shadow) getActualPathForRemote(path string, isFolder bool) (string, error) {
+//	remote, err := d.getPathForRemote(path, isFolder)
+//	if err != nil {
+//		return "", err
+//	}
+//	_, remoteActualPath, err := op.GetStorageAndActualPath(remote)
+//	return remoteActualPath, err
+//}
 
 func SplitString(s string, n int) []string {
 	var result []string
@@ -63,4 +62,10 @@ func encodePath(path string, maxSegmentLen int) (string, error) {
 		p += "/"
 	}
 	return p, nil
+}
+
+func SplitTarget(name string) (string, string) {
+	name = strings.ReplaceAll(name, "\\", "/")
+	name = strings.TrimSuffix(name, "/")
+	return stdpath.Split(stdpath.Clean(name))
 }

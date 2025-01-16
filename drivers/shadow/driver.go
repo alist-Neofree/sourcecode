@@ -5,11 +5,10 @@ import (
 	"context"
 	"fmt"
 	log "github.com/sirupsen/logrus"
-	"io"
 	stdpath "path"
-	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/fs"
@@ -21,7 +20,7 @@ import (
 	"github.com/alist-org/alist/v3/server/common"
 )
 
-var IndexPlaceholderContent = []byte("_shadow_")
+var IndexPlaceholderContent = []byte("_sd_")
 
 type Shadow struct {
 	model.Storage
@@ -53,13 +52,7 @@ func (d *Shadow) Drop(ctx context.Context) error {
 }
 
 func (d *Shadow) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
-	path := dir.GetPath()
-
-	remotePath, err := d.getPathForRemote(path, true)
-	if err != nil {
-		return nil, err
-	}
-	objs, err := fs.List(ctx, remotePath, &fs.ListArgs{NoLog: true})
+	objs, err := fs.List(ctx, dir.GetPath(), &fs.ListArgs{NoLog: true})
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +78,11 @@ func (d *Shadow) List(ctx context.Context, dir model.Obj, args model.ListArgs) (
 			if err != nil {
 				continue
 			}
-			normalObjs = append(normalObjs, &WrapObj{Obj: obj, Name: &name})
+			normalObjs = append(normalObjs, &WrapObj{
+				Obj:         obj,
+				Name:        name,
+				RemotePaths: []string{stdpath.Join(dir.GetPath(), obj.GetName())},
+			})
 		}
 	}
 
@@ -96,7 +93,14 @@ func (d *Shadow) List(ctx context.Context, dir model.Obj, args model.ListArgs) (
 			continue
 		}
 		if obj, ok := splitObjs[k]; ok {
-			normalObjs = append(normalObjs, &WrapObj{Obj: obj, Name: &name})
+			names, err := splitName(name, d.MaxFilenameLen, 0)
+			if err != nil {
+				continue
+			}
+			for i, name_ := range names {
+				names[i] = stdpath.Join(dir.GetPath(), name_)
+			}
+			normalObjs = append(normalObjs, &WrapObj{Obj: obj, Name: name, RemotePaths: names})
 		}
 	}
 
@@ -138,67 +142,46 @@ func (d *Shadow) List(ctx context.Context, dir model.Obj, args model.ListArgs) (
 
 func (d *Shadow) Get(ctx context.Context, path string) (model.Obj, error) {
 	if utils.PathEqual(path, "/") {
-		return &model.Object{
-			Name:     "Root",
-			IsFolder: true,
-			Path:     "/",
+		return &WrapObj{
+			Name:        "Root",
+			RemotePaths: []string{stdpath.Clean(d.RemotePath)},
+			Obj: &model.Object{
+				Name:     "Root",
+				IsFolder: true,
+				Path:     "/",
+			},
 		}, nil
 	}
 
-	remoteFullPath, err := d.getPathForRemote(path, false)
-	if err != nil {
-		return nil, err
-	}
-	remoteObj, err := fs.Get(ctx, remoteFullPath, &fs.GetArgs{NoLog: true})
+	dir, name := SplitTarget(path)
+	remoteDir, err := encodePath(dir, d.MaxFilenameLen)
 	if err != nil {
 		return nil, err
 	}
 
-	//remoteFullPath := ""
-	//var remoteObj model.Obj
-	//var err, err2 error
-	//firstTryIsFolder, secondTry := guessPath(path)
-	//remoteFullPath, err = d.getPathForRemote(path, firstTryIsFolder)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//remoteObj, err = fs.Get(ctx, remoteFullPath, &fs.GetArgs{NoLog: true})
-	//if err != nil {
-	//	if errs.IsObjectNotFound(err) && secondTry {
-	//		//try the opposite
-	//		remoteFullPath, err2 = d.getPathForRemote(path, !firstTryIsFolder)
-	//		if err2 != nil {
-	//			return nil, err2
-	//		}
-	//		remoteObj, err2 = fs.Get(ctx, remoteFullPath, &fs.GetArgs{NoLog: true})
-	//		if err2 != nil {
-	//			return nil, err2
-	//		}
-	//	} else {
-	//		return nil, err
-	//	}
-	//}
-	_, name := filepath.Split(strings.TrimSuffix(path, "/"))
+	names, err := splitName(name, d.MaxFilenameLen, 0)
+	if err != nil {
+		return nil, err
+	}
+	for i, name_ := range names {
+		names[i] = stdpath.Join(d.RemotePath, remoteDir, name_)
+	}
 
-	obj := &WrapObj{Obj: remoteObj, Name: &name, Path: &path}
+	remoteObj, err := fs.Get(ctx, names[0], &fs.GetArgs{NoLog: true})
+	if err != nil {
+		return nil, err
+	}
+
+	obj := &WrapObj{Obj: remoteObj, Name: name, RemotePaths: names}
 	return obj, nil
 }
 
 func (d *Shadow) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
-	dstDirActualPath, err := d.getPathForRemote(file.GetPath(), false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert path to remote path: %w", err)
-	}
-
-	link, _, err := fs.Link(ctx, dstDirActualPath, args)
+	link, _, err := fs.Link(ctx, file.GetPath(), args)
 	return link, err
 }
 
 func (d *Shadow) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
-	dstDirActualPath, err := d.getActualPathForRemote(parentDir.GetPath(), true)
-	if err != nil {
-		return fmt.Errorf("failed to convert path to remote path: %w", err)
-	}
 	dirs, err := splitName(dirName, d.MaxFilenameLen, 0)
 	if err != nil {
 		return err
@@ -208,78 +191,134 @@ func (d *Shadow) MakeDir(ctx context.Context, parentDir model.Obj, dirName strin
 	var errFinal error
 	for _, dir := range dirs {
 		group.Add(1)
+		dir := dir
 		go func() {
 			defer group.Done()
-			err := op.MakeDir(ctx, d.remoteStorage, stdpath.Join(dstDirActualPath, dir))
+			err := fs.MakeDir(ctx, stdpath.Join(parentDir.GetPath(), dir))
 			if err != nil {
 				errFinal = err
 			}
 		}()
 	}
 	group.Wait()
+
 	if errFinal != nil {
 		for _, dir := range dirs {
-			_ = op.Remove(ctx, d.remoteStorage, dir)
+			dir := dir
+			go func() {
+				_ = fs.Remove(ctx, stdpath.Join(parentDir.GetPath(), dir))
+			}()
 		}
 	}
 	return errFinal
 }
 
-// Move TODO:fit
 func (d *Shadow) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
-	srcRemoteActualPath, err := d.getActualPathForRemote(srcObj.GetPath(), srcObj.IsDir())
-	if err != nil {
-		return fmt.Errorf("failed to convert path to remote path: %w", err)
+	group := sync.WaitGroup{}
+	var errFinal error
+	for _, srcPath := range MustWrapObj(srcObj).GetRemotePaths() {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			err := fs.Move(ctx, srcPath, dstDir.GetPath())
+			if err != nil {
+				errFinal = err
+			}
+		}()
 	}
-	dstRemoteActualPath, err := d.getActualPathForRemote(dstDir.GetPath(), dstDir.IsDir())
-	if err != nil {
-		return fmt.Errorf("failed to convert path to remote path: %w", err)
-	}
-	return op.Move(ctx, d.remoteStorage, srcRemoteActualPath, dstRemoteActualPath)
+	group.Wait()
+	return errFinal
 }
 
-// Rename TODO:fit
 func (d *Shadow) Rename(ctx context.Context, srcObj model.Obj, newName string) error {
-	remoteActualPath, err := d.getActualPathForRemote(srcObj.GetPath(), srcObj.IsDir())
-	if err != nil {
-		return fmt.Errorf("failed to convert path to remote path: %w", err)
-	}
-	encodedNames, err := splitName(newName, d.MaxFilenameLen, 0)
+	newNames, err := splitName(newName, d.MaxFilenameLen, 0)
 	if err != nil {
 		return err
 	}
-	return op.Rename(ctx, d.remoteStorage, remoteActualPath, encodedNames[0])
+	oldNames := MustWrapObj(srcObj).GetRemotePaths()
+
+	group := sync.WaitGroup{}
+	var errFinal error
+	maxIt := max(len(newNames), len(oldNames))
+	for i := 0; i < maxIt; i++ {
+		i := i
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			if i < len(newNames) {
+				newName1 := newNames[i]
+				if i < len(oldNames) {
+					oldName := oldNames[i]
+					err2 := fs.Rename(ctx, oldName, newName1)
+					if err2 != nil {
+						errFinal = err2
+					}
+				} else {
+					remoteDir, _ := SplitTarget(srcObj.GetPath())
+					err := d.PutFile(ctx, newName1, IndexPlaceholderContent, remoteDir, "text/plain")
+					if err != nil {
+						errFinal = err
+					}
+				}
+			} else if i >= len(newNames) && i < len(oldNames) {
+				oldName := oldNames[i]
+				_ = fs.Remove(ctx, oldName)
+			}
+		}()
+	}
+	group.Wait()
+	return errFinal
 }
 
-// Copy TODO:fit
 func (d *Shadow) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
+	group := sync.WaitGroup{}
+	var errFinal error
+	var addedFiles []string
+	for _, name := range MustWrapObj(srcObj).GetRemotePaths() {
+		name := name
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			addedFiles = append(addedFiles, stdpath.Join(dstDir.GetPath(), name))
+			_, err := fs.Copy(ctx, name, dstDir.GetPath())
+			if err != nil {
+				errFinal = err
+			}
+		}()
+	}
+	group.Wait()
 
-	srcRemoteActualPath, err := d.getActualPathForRemote(srcObj.GetPath(), srcObj.IsDir())
-	if err != nil {
-		return fmt.Errorf("failed to convert path to remote path: %w", err)
+	if errFinal != nil {
+		for _, delFile := range addedFiles {
+			delFile := delFile
+			go func() {
+				_ = fs.Remove(context.Background(), delFile)
+			}()
+		}
 	}
-	dstRemoteActualPath, err := d.getActualPathForRemote(dstDir.GetPath(), dstDir.IsDir())
-	if err != nil {
-		return fmt.Errorf("failed to convert path to remote path: %w", err)
-	}
-	return op.Copy(ctx, d.remoteStorage, srcRemoteActualPath, dstRemoteActualPath)
+
+	return errFinal
 }
 
 func (d *Shadow) Remove(ctx context.Context, obj model.Obj) error {
-	remotePath, err := d.getPathForRemote(obj.GetPath(), obj.IsDir())
-	if err != nil {
-		return fmt.Errorf("failed to convert path to remote path: %w", err)
+	group := sync.WaitGroup{}
+	var errFinal error
+	for _, name := range MustWrapObj(obj).GetRemotePaths() {
+		name := name
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			err := fs.Remove(ctx, name)
+			if err != nil {
+				errFinal = err
+			}
+		}()
 	}
-
-	return fs.Remove(ctx, remotePath)
+	group.Wait()
+	return errFinal
 }
 
 func (d *Shadow) Put(ctx context.Context, dstDir model.Obj, streamer model.FileStreamer, up driver.UpdateProgress) error {
-	dstDirActualPath, err := d.getActualPathForRemote(dstDir.GetPath(), true)
-	if err != nil {
-		return fmt.Errorf("failed to convert path to remote path: %w", err)
-	}
-
 	encodedNames, err := splitName(streamer.GetName(), d.MaxFilenameLen, 0)
 	if err != nil {
 		return err
@@ -287,40 +326,68 @@ func (d *Shadow) Put(ctx context.Context, dstDir model.Obj, streamer model.FileS
 
 	group := sync.WaitGroup{}
 	var errFinal error
-	for i, name := range encodedNames {
-		group.Add(1)
-		go func() {
-			var reader io.Reader
-			var mimeType string
-			if i == 0 {
-				reader = streamer
-				mimeType = streamer.GetMimetype()
-			} else {
-				reader = bytes.NewReader(IndexPlaceholderContent)
-				mimeType = "text/plain"
-			}
-			streamOut := &stream.FileStream{
-				Obj:               NewNamedObj(name, dstDir),
-				Reader:            reader,
-				Mimetype:          mimeType,
-				WebPutAsTask:      streamer.NeedStore(),
-				ForceStreamUpload: true,
-				Exist:             streamer.GetExist(),
-			}
-			err = op.Put(ctx, d.remoteStorage, dstDirActualPath, streamOut, up, false)
-			if err != nil {
-				errFinal = err
-			}
-		}()
-	}
-	group.Wait()
-	if errFinal != nil {
-		for _, name := range encodedNames {
-			_ = op.Remove(ctx, d.remoteStorage, stdpath.Join(dstDirActualPath, name))
+	var addedFiles []string
+
+	if len(encodedNames) > 1 {
+		for _, name := range encodedNames[1:] {
+			group.Add(1)
+			name := name
+			go func() {
+				defer group.Done()
+				addedFiles = append(addedFiles, stdpath.Join(dstDir.GetPath(), name))
+				err := d.PutFile(ctx, name, IndexPlaceholderContent, dstDir.GetPath(), "text/plain")
+				if err != nil {
+					errFinal = err
+				}
+			}()
 		}
 	}
 
+	storage, actualPath, err := op.GetStorageAndActualPath(dstDir.GetPath())
+	if err != nil {
+		errFinal = err
+	} else {
+		addedFiles = append(addedFiles, stdpath.Join(dstDir.GetPath(), encodedNames[0]))
+		err = op.Put(ctx, storage, actualPath, &WrapNameStreamer{
+			FileStreamer: streamer,
+			Name:         encodedNames[0],
+		}, up, true)
+		if err != nil {
+			errFinal = err
+		}
+	}
+
+	group.Wait()
+
+	if errFinal != nil {
+		for _, delFile := range addedFiles {
+			delFile := delFile
+			go func() {
+				_ = fs.Remove(context.Background(), delFile)
+			}()
+		}
+	}
 	return errFinal
+}
+
+func (d *Shadow) PutFile(
+	ctx context.Context,
+	name string,
+	data []byte,
+	remoteFullDir string,
+	mimeType string,
+) error {
+	s := &stream.FileStream{
+		Obj: &model.Object{
+			Name:     name,
+			Size:     int64(len(data)),
+			Modified: time.Now(),
+		},
+		Reader:       bytes.NewReader(data),
+		Mimetype:     mimeType,
+		WebPutAsTask: false,
+	}
+	return fs.PutDirectly(ctx, remoteFullDir, s, true)
 }
 
 var _ driver.Driver = (*Shadow)(nil)

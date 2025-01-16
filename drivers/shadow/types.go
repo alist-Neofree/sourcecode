@@ -4,26 +4,18 @@ import (
 	"github.com/alist-org/alist/v3/internal/model"
 )
 
-type NamedObj struct {
-	model.Obj
-	Name string
-}
-
-func NewNamedObj(name string, obj model.Obj) *NamedObj {
-	return &NamedObj{
-		Obj:  obj,
-		Name: name,
-	}
-}
-
-func (obj *NamedObj) GetName() string {
-	return obj.Name
-}
-
 type WrapObj struct {
-	Name *string
-	Path *string
 	model.Obj
+	Name        string
+	RemotePaths []string
+}
+
+func MustWrapObj(obj model.Obj) *WrapObj {
+	if w, ok := obj.(*WrapObj); ok {
+		return w
+	} else {
+		panic("can not convert to wrap obj")
+	}
 }
 
 func (obj *WrapObj) UnWrap() model.Obj {
@@ -31,17 +23,15 @@ func (obj *WrapObj) UnWrap() model.Obj {
 }
 
 func (obj *WrapObj) GetName() string {
-	if obj.Name != nil {
-		return *obj.Name
-	}
-	return obj.Obj.GetName()
+	return obj.Name
 }
 
 func (obj *WrapObj) GetPath() string {
-	if obj.Path != nil {
-		return *obj.Path
-	}
-	return obj.Obj.GetPath()
+	return obj.RemotePaths[0]
+}
+
+func (obj *WrapObj) GetRemotePaths() []string {
+	return obj.RemotePaths
 }
 
 func (obj *WrapObj) GetObject() *model.Object {
@@ -55,4 +45,13 @@ func (obj *WrapObj) GetObject() *model.Object {
 		IsFolder: obj.IsDir(),
 		HashInfo: obj.GetHash(),
 	}
+}
+
+type WrapNameStreamer struct {
+	model.FileStreamer
+	Name string
+}
+
+func (w *WrapNameStreamer) GetName() string {
+	return w.Name
 }
