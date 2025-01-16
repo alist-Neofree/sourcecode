@@ -41,7 +41,6 @@ the address is defined in config file`,
 		bootstrap.InitOfflineDownloadTools()
 		bootstrap.LoadStorages()
 		bootstrap.InitTaskManager()
-		defer fs.ArchiveContentUploadTaskManager.RemoveAll()
 		if !flags.Debug && !flags.Dev {
 			gin.SetMode(gin.ReleaseMode)
 		}
@@ -161,6 +160,7 @@ the address is defined in config file`,
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 		<-quit
 		utils.Log.Println("Shutdown server...")
+                fs.ArchiveContentUploadTaskManager.RemoveAll()
 		Release()
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
