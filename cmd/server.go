@@ -160,7 +160,7 @@ the address is defined in config file`,
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 		<-quit
 		utils.Log.Println("Shutdown server...")
-                fs.ArchiveContentUploadTaskManager.RemoveAll()
+		fs.ArchiveContentUploadTaskManager.RemoveAll()
 		Release()
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
