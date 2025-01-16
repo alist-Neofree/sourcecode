@@ -5,6 +5,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/utils"
+	"io"
 	"io/fs"
 	"os"
 	stdpath "path"
@@ -29,7 +30,10 @@ func (_ *Archives) GetMeta(ss *stream.SeekableStream, args model.ArchiveArgs) (m
 	if err != nil {
 		return nil, filterPassword(err)
 	}
-	return &tool.EmptyMeta{}, nil
+	return &model.ArchiveMetaInfo{
+		Comment:   "",
+		Encrypted: false,
+	}, nil
 }
 
 func (_ *Archives) List(ss *stream.SeekableStream, args model.ArchiveInnerArgs) ([]model.Obj, error) {
@@ -37,7 +41,11 @@ func (_ *Archives) List(ss *stream.SeekableStream, args model.ArchiveInnerArgs) 
 	if err != nil {
 		return nil, err
 	}
-	obj, err := fsys.ReadDir(strings.TrimPrefix(args.InnerPath, "/"))
+	innerPath := strings.TrimPrefix(args.InnerPath, "/")
+	if innerPath == "" {
+		innerPath = "."
+	}
+	obj, err := fsys.ReadDir(innerPath)
 	if err != nil {
 		return nil, filterPassword(err)
 	}
@@ -50,16 +58,20 @@ func (_ *Archives) List(ss *stream.SeekableStream, args model.ArchiveInnerArgs) 
 	})
 }
 
-func (_ *Archives) Extract(ss *stream.SeekableStream, args model.ArchiveInnerArgs) (*model.Link, error) {
+func (_ *Archives) Extract(ss *stream.SeekableStream, args model.ArchiveInnerArgs) (io.ReadCloser, int64, error) {
 	fsys, err := getFs(ss, args.ArchiveArgs)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	file, err := fsys.Open(strings.TrimPrefix(args.InnerPath, "/"))
 	if err != nil {
-		return nil, filterPassword(err)
+		return nil, 0, filterPassword(err)
 	}
-	return &model.Link{MFile: &tool.SequentialFile{Reader: file}}, nil
+	stat, err := file.Stat()
+	if err != nil {
+		return nil, 0, filterPassword(err)
+	}
+	return file, stat.Size(), nil
 }
 
 func (_ *Archives) Decompress(ss *stream.SeekableStream, outputPath string, args model.ArchiveInnerArgs, up model.UpdateProgress) error {

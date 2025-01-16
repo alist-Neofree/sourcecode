@@ -2,8 +2,10 @@ package op
 
 import (
 	"context"
+	stderrors "errors"
 	"github.com/alist-org/alist/v3/internal/archive/tool"
 	"github.com/alist-org/alist/v3/internal/stream"
+	"io"
 	stdpath "path"
 	"strings"
 	"time"
@@ -18,10 +20,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var archiveMetaCache = cache.NewMemCache(cache.WithShards[model.ArchiveMeta](64))
-var archiveMetaG singleflight.Group[model.ArchiveMeta]
+var archiveMetaCache = cache.NewMemCache(cache.WithShards[*model.ArchiveMetaProvider](64))
+var archiveMetaG singleflight.Group[*model.ArchiveMetaProvider]
 
-func GetArchiveMeta(ctx context.Context, storage driver.Driver, path string, args model.ArchiveMetaArgs) (model.ArchiveMeta, error) {
+func GetArchiveMeta(ctx context.Context, storage driver.Driver, path string, args model.ArchiveMetaArgs) (*model.ArchiveMetaProvider, error) {
 	if storage.Config().CheckStatus && storage.GetStorage().Status != WORK {
 		return nil, errors.Errorf("storage not init: %s", storage.GetStorage().Status)
 	}
@@ -33,13 +35,13 @@ func GetArchiveMeta(ctx context.Context, storage driver.Driver, path string, arg
 			return meta, nil
 		}
 	}
-	fn := func() (model.ArchiveMeta, error) {
+	fn := func() (*model.ArchiveMetaProvider, error) {
 		_, m, err := getArchiveMeta(ctx, storage, path, args)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get %s archive met: %+v", path, err)
 		}
 		if !storage.Config().NoCache {
-			archiveMetaCache.Set(key, m, cache.WithEx[model.ArchiveMeta](time.Minute*time.Duration(storage.GetStorage().CacheExpiration)))
+			archiveMetaCache.Set(key, m, cache.WithEx[*model.ArchiveMetaProvider](time.Minute*time.Duration(storage.GetStorage().CacheExpiration)))
 		}
 		return m, nil
 	}
@@ -68,7 +70,7 @@ func getArchiveToolAndStream(ctx context.Context, storage driver.Driver, path st
 	return obj, t, ss, nil
 }
 
-func getArchiveMeta(ctx context.Context, storage driver.Driver, path string, args model.ArchiveMetaArgs) (model.Obj, model.ArchiveMeta, error) {
+func getArchiveMeta(ctx context.Context, storage driver.Driver, path string, args model.ArchiveMetaArgs) (model.Obj, *model.ArchiveMetaProvider, error) {
 	storageAr, ok := storage.(driver.ArchiveReader)
 	if ok {
 		obj, err := GetUnwrap(ctx, storage, path)
@@ -80,7 +82,7 @@ func getArchiveMeta(ctx context.Context, storage driver.Driver, path string, arg
 		}
 		meta, err := storageAr.GetArchiveMeta(ctx, obj, args.ArchiveArgs)
 		if !errors.Is(err, errs.NotImplement) {
-			return obj, meta, err
+			return obj, &model.ArchiveMetaProvider{ArchiveMeta: meta, DriverProviding: true}, err
 		}
 	}
 	obj, t, ss, err := getArchiveToolAndStream(ctx, storage, path, args.LinkArgs)
@@ -93,7 +95,7 @@ func getArchiveMeta(ctx context.Context, storage driver.Driver, path string, arg
 		}
 	}()
 	meta, err := t.GetMeta(ss, args.ArchiveArgs)
-	return obj, meta, err
+	return obj, &model.ArchiveMetaProvider{ArchiveMeta: meta, DriverProviding: false}, err
 }
 
 var archiveListCache = cache.NewMemCache(cache.WithShards[[]model.Obj](64))
@@ -192,7 +194,7 @@ func listArchive(ctx context.Context, storage driver.Driver, path string, args m
 			return nil, nil, err
 		}
 	}
-	if obj == nil {
+	if err == nil && obj == nil {
 		obj, err = GetUnwrap(ctx, storage, path)
 	}
 	if err != nil {
@@ -275,7 +277,7 @@ func ArchiveGet(ctx context.Context, storage driver.Driver, path string, args mo
 	}
 
 	innerDir, name := stdpath.Split(args.InnerPath)
-	args.InnerPath = innerDir
+	args.InnerPath = strings.TrimSuffix(innerDir, "/")
 	files, err := ListArchive(ctx, storage, path, args)
 	if err != nil {
 		return nil, nil, errors.WithMessage(err, "failed get parent list")
@@ -296,7 +298,7 @@ type extractLink struct {
 var extractCache = cache.NewMemCache(cache.WithShards[*extractLink](16))
 var extractG singleflight.Group[*extractLink]
 
-func Extract(ctx context.Context, storage driver.Driver, path string, args model.ArchiveInnerArgs) (*model.Link, model.Obj, error) {
+func DriverExtract(ctx context.Context, storage driver.Driver, path string, args model.ArchiveInnerArgs) (*model.Link, model.Obj, error) {
 	if storage.Config().CheckStatus && storage.GetStorage().Status != WORK {
 		return nil, nil, errors.Errorf("storage not init: %s", storage.GetStorage().Status)
 	}
@@ -307,7 +309,7 @@ func Extract(ctx context.Context, storage driver.Driver, path string, args model
 		return link.Link, link.Obj, nil
 	}
 	fn := func() (*extractLink, error) {
-		link, err := extract(ctx, storage, path, args)
+		link, err := driverExtract(ctx, storage, path, args)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed extract archive")
 		}
@@ -333,8 +335,11 @@ func Extract(ctx context.Context, storage driver.Driver, path string, args model
 	return link.Link, link.Obj, err
 }
 
-func extract(ctx context.Context, storage driver.Driver, path string, args model.ArchiveInnerArgs) (*extractLink, error) {
+func driverExtract(ctx context.Context, storage driver.Driver, path string, args model.ArchiveInnerArgs) (*extractLink, error) {
 	storageAr, ok := storage.(driver.ArchiveReader)
+	if !ok {
+		return nil, errs.DriverExtractNotSupported
+	}
 	archiveFile, extracted, err := ArchiveGet(ctx, storage, path, model.ArchiveListArgs{
 		ArchiveInnerArgs: args,
 		Refresh:          false,
@@ -345,26 +350,38 @@ func extract(ctx context.Context, storage driver.Driver, path string, args model
 	if extracted.IsDir() {
 		return nil, errors.WithStack(errs.NotFile)
 	}
-	if ok {
-		link, err := storageAr.Extract(ctx, archiveFile, args)
-		if !errors.Is(err, errs.NotImplement) {
-			return &extractLink{Link: link, Obj: extracted}, err
-		}
-	}
+	link, err := storageAr.Extract(ctx, archiveFile, args)
+	return &extractLink{Link: link, Obj: extracted}, err
+}
+
+type streamWithParent struct {
+	rc     io.ReadCloser
+	parent *stream.SeekableStream
+}
+
+func (s *streamWithParent) Read(p []byte) (int, error) {
+	return s.rc.Read(p)
+}
+
+func (s *streamWithParent) Close() error {
+	err1 := s.rc.Close()
+	err2 := s.parent.Close()
+	return stderrors.Join(err1, err2)
+}
+
+func InternalExtract(ctx context.Context, storage driver.Driver, path string, args model.ArchiveInnerArgs) (io.ReadCloser, int64, error) {
 	_, t, ss, err := getArchiveToolAndStream(ctx, storage, path, args.LinkArgs)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	defer func() {
-		if err := ss.Close(); err != nil {
-			log.Errorf("failed to close file streamer, %v", err)
-		}
-	}()
-	link, err := t.Extract(ss, args)
+	rc, size, err := t.Extract(ss, args)
 	if err != nil {
-		return nil, err
+		if e := ss.Close(); e != nil {
+			log.Errorf("failed to close file streamer, %v", e)
+		}
+		return nil, 0, err
 	}
-	return &extractLink{Link: link, Obj: extracted}, err
+	return &streamWithParent{rc: rc, parent: ss}, size, nil
 }
 
 func ArchiveDecompress(ctx context.Context, storage driver.Driver, srcPath, dstDirPath string, args model.ArchiveDecompressArgs, lazyCache ...bool) error {

@@ -15,6 +15,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/xhofe/tache"
+	"io"
 	"math/rand"
 	"mime"
 	"net/http"
@@ -308,7 +309,7 @@ var ArchiveContentUploadTaskManager = &archiveContentUploadTaskManagerType{
 	Manager: nil,
 }
 
-func archiveMeta(ctx context.Context, path string, args model.ArchiveMetaArgs) (model.ArchiveMeta, error) {
+func archiveMeta(ctx context.Context, path string, args model.ArchiveMetaArgs) (*model.ArchiveMetaProvider, error) {
 	storage, actualPath, err := op.GetStorageAndActualPath(path)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed get storage")
@@ -377,10 +378,18 @@ func archiveDecompress(ctx context.Context, srcObjPath, dstDirPath string, args 
 	}
 }
 
-func archiveExtract(ctx context.Context, path string, args model.ArchiveInnerArgs) (*model.Link, model.Obj, error) {
+func archiveDriverExtract(ctx context.Context, path string, args model.ArchiveInnerArgs) (*model.Link, model.Obj, error) {
 	storage, actualPath, err := op.GetStorageAndActualPath(path)
 	if err != nil {
 		return nil, nil, errors.WithMessage(err, "failed get storage")
 	}
-	return op.Extract(ctx, storage, actualPath, args)
+	return op.DriverExtract(ctx, storage, actualPath, args)
+}
+
+func archiveInternalExtract(ctx context.Context, path string, args model.ArchiveInnerArgs) (io.ReadCloser, int64, error) {
+	storage, actualPath, err := op.GetStorageAndActualPath(path)
+	if err != nil {
+		return nil, 0, errors.WithMessage(err, "failed get storage")
+	}
+	return op.InternalExtract(ctx, storage, actualPath, args)
 }

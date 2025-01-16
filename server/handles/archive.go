@@ -1,15 +1,21 @@
 package handles
 
 import (
+	"fmt"
 	"github.com/alist-org/alist/v3/internal/archive/tool"
+	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/fs"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/op"
+	"github.com/alist-org/alist/v3/internal/setting"
+	"github.com/alist-org/alist/v3/internal/sign"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
+	"mime"
 	stdpath "path"
 	"strings"
 )
@@ -25,6 +31,8 @@ type ArchiveMetaResp struct {
 	Comment     string               `json:"comment"`
 	IsEncrypted bool                 `json:"encrypted"`
 	Content     []ArchiveContentResp `json:"content"`
+	RawURL      string               `json:"raw_url"`
+	Sign        string               `json:"sign"`
 }
 
 type ArchiveContentResp struct {
@@ -108,10 +116,20 @@ func FsArchiveMeta(c *gin.Context) {
 		}
 		return
 	}
+	s := ""
+	if isEncrypt(meta, reqPath) || setting.GetBool(conf.SignAll) {
+		s = sign.Sign(reqPath)
+	}
+	api := "/ae"
+	if ret.DriverProviding {
+		api = "/ad"
+	}
 	common.SuccessResp(c, ArchiveMetaResp{
 		Comment:     ret.GetComment(),
 		IsEncrypted: ret.IsEncrypted(),
 		Content:     toContentResp(ret.GetTree()),
+		RawURL:      fmt.Sprintf("%s%s%s", common.GetApiUrl(c.Request), api, utils.EncodePath(reqPath, true)),
+		Sign:        s,
 	})
 }
 
@@ -260,7 +278,7 @@ func ArchiveDown(c *gin.Context) {
 		ArchiveProxy(c)
 		return
 	} else {
-		link, _, err := fs.ArchiveExtract(c, archiveRawPath, model.ArchiveInnerArgs{
+		link, _, err := fs.ArchiveDriverExtract(c, archiveRawPath, model.ArchiveInnerArgs{
 			ArchiveArgs: model.ArchiveArgs{
 				LinkArgs: model.LinkArgs{
 					IP:      c.ClientIP(),
@@ -292,7 +310,7 @@ func ArchiveProxy(c *gin.Context) {
 	}
 	if canProxy(storage, filename) {
 		// TODO: Support external download proxy URL
-		link, file, err := fs.ArchiveExtract(c, archiveRawPath, model.ArchiveInnerArgs{
+		link, file, err := fs.ArchiveDriverExtract(c, archiveRawPath, model.ArchiveInnerArgs{
 			ArchiveArgs: model.ArchiveArgs{
 				LinkArgs: model.LinkArgs{
 					Header:  c.Request.Header,
@@ -312,6 +330,46 @@ func ArchiveProxy(c *gin.Context) {
 		common.ErrorStrResp(c, "proxy not allowed", 403)
 		return
 	}
+}
+
+func ArchiveInternalExtract(c *gin.Context) {
+	archiveRawPath := c.MustGet("path").(string)
+	innerPath := utils.FixAndCleanPath(c.Query("inner"))
+	password := c.Query("pass")
+	rc, size, err := fs.ArchiveInternalExtract(c, archiveRawPath, model.ArchiveInnerArgs{
+		ArchiveArgs: model.ArchiveArgs{
+			LinkArgs: model.LinkArgs{
+				Header:  c.Request.Header,
+				Type:    c.Query("type"),
+				HttpReq: c.Request,
+			},
+			Password: password,
+		},
+		InnerPath: innerPath,
+	})
+	if err != nil {
+		common.ErrorResp(c, err, 500)
+		return
+	}
+	defer func() {
+		if err := rc.Close(); err != nil {
+			log.Errorf("failed to close file streamer, %v", err)
+		}
+	}()
+	headers := map[string]string{
+		"Referrer-Policy": "no-referrer",
+		"Cache-Control":   "max-age=0, no-cache, no-store, must-revalidate",
+	}
+	if c.Query("attachment") == "true" {
+		filename := stdpath.Base(innerPath)
+		headers["Content-Disposition"] = fmt.Sprintf("attachment; filename=\"%s\"", filename)
+	}
+	contentType := c.Request.Header.Get("Content-Type")
+	if contentType == "" {
+		fileExt := stdpath.Ext(innerPath)
+		contentType = mime.TypeByExtension(fileExt)
+	}
+	c.DataFromReader(200, size, contentType, rc, headers)
 }
 
 func ArchiveExtensions(c *gin.Context) {
