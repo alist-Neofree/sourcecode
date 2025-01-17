@@ -106,7 +106,7 @@ func (t *ArchiveDownloadTask) RunWithoutPushUploadTask() (*ArchiveContentUploadT
 	if err != nil {
 		return nil, err
 	}
-	baseName, _, _ := strings.Cut(srcObj.GetName(), ".")
+	baseName := strings.TrimSuffix(srcObj.GetName(), stdpath.Ext(srcObj.GetName()))
 	uploadTask := &ArchiveContentUploadTask{
 		TaskExtension: task.TaskExtension{
 			Creator: t.GetCreator(),

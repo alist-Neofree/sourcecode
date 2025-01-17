@@ -76,8 +76,5 @@ func decompress(fsys fs2.FS, filePath, targetPath string, up model.UpdateProgres
 		},
 		UpdateProgress: up,
 	})
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
