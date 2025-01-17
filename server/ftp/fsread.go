@@ -53,6 +53,7 @@ func OpenDownload(ctx context.Context, reqPath string, offset int64) (*FileDownl
 	}
 	reader, err := stream.NewReadAtSeeker(ss, offset)
 	if err != nil {
+		_ = ss.Close()
 		return nil, err
 	}
 	return &FileDownloadProxy{reader: reader}, nil

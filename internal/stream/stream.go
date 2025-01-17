@@ -333,9 +333,9 @@ type readerCur struct {
 }
 
 type RangeReadReadAtSeeker struct {
-	ss      *SeekableStream
-	master  int
-	readers []*readerCur
+	ss        *SeekableStream
+	masterOff int64
+	readers   []*readerCur
 }
 
 type FileReadAtSeeker struct {
@@ -367,9 +367,9 @@ func NewReadAtSeeker(ss *SeekableStream, offset int64, forceRange ...bool) (SStr
 		r = ss
 	}
 	return &RangeReadReadAtSeeker{
-		ss:      ss,
-		master:  0,
-		readers: []*readerCur{{reader: r, cur: offset}},
+		ss:        ss,
+		masterOff: offset,
+		readers:   []*readerCur{{reader: r, cur: offset}},
 	}, nil
 }
 
@@ -377,26 +377,26 @@ func (r *RangeReadReadAtSeeker) GetRawStream() *SeekableStream {
 	return r.ss
 }
 
-func (r *RangeReadReadAtSeeker) getReaderAtOffset(off int64) (int, *readerCur, error) {
-	for i, reader := range r.readers {
+func (r *RangeReadReadAtSeeker) getReaderAtOffset(off int64) (*readerCur, error) {
+	for _, reader := range r.readers {
 		if reader.cur == off {
-			return i, reader, nil
+			return reader, nil
 		}
 	}
 	reader, err := r.ss.RangeRead(http_range.Range{Start: off, Length: -1})
 	if err != nil {
-		return 0, nil, err
+		return nil, err
 	}
 	if c, ok := reader.(io.Closer); ok {
 		r.ss.Closers.Add(c)
 	}
 	rc := &readerCur{reader: reader, cur: off}
 	r.readers = append(r.readers, rc)
-	return len(r.readers) - 1, rc, nil
+	return rc, nil
 }
 
 func (r *RangeReadReadAtSeeker) ReadAt(p []byte, off int64) (int, error) {
-	_, rc, err := r.getReaderAtOffset(off)
+	rc, err := r.getReaderAtOffset(off)
 	if err != nil {
 		return 0, err
 	}
@@ -417,31 +417,32 @@ func (r *RangeReadReadAtSeeker) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekStart:
 	case io.SeekCurrent:
 		if offset == 0 {
-			return r.readers[r.master].cur, nil
+			return r.masterOff, nil
 		}
-		offset += r.readers[r.master].cur
+		offset += r.masterOff
 	case io.SeekEnd:
 		offset += r.ss.GetSize()
 	default:
 		return 0, errs.NotSupport
 	}
 	if offset < 0 {
-		return r.readers[r.master].cur, errors.New("invalid seek: negative position")
+		return r.masterOff, errors.New("invalid seek: negative position")
 	}
 	if offset > r.ss.GetSize() {
-		return r.readers[r.master].cur, io.EOF
+		return r.masterOff, io.EOF
 	}
-	i, _, err := r.getReaderAtOffset(offset)
-	if err != nil {
-		return r.readers[r.master].cur, err
-	}
-	r.master = i
-	return r.readers[r.master].cur, nil
+	r.masterOff = offset
+	return offset, nil
 }
 
 func (r *RangeReadReadAtSeeker) Read(p []byte) (n int, err error) {
-	n, err = r.readers[r.master].reader.Read(p)
-	r.readers[r.master].cur += int64(n)
+	rc, err := r.getReaderAtOffset(r.masterOff)
+	if err != nil {
+		return 0, err
+	}
+	n, err = rc.reader.Read(p)
+	rc.cur += int64(n)
+	r.masterOff += int64(n)
 	return n, err
 }
 
