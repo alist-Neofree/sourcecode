@@ -326,15 +326,18 @@ func (d *Shadow) Put(ctx context.Context, dstDir model.Obj, streamer model.FileS
 
 	group := sync.WaitGroup{}
 	var errFinal error
-	var addedFiles []string
+	addedFiles := []string{stdpath.Join(dstDir.GetPath(), encodedNames[0])}
 
 	if len(encodedNames) > 1 {
+		addedFilesLock := sync.Mutex{}
 		for _, name := range encodedNames[1:] {
 			group.Add(1)
 			name := name
 			go func() {
 				defer group.Done()
+				addedFilesLock.Lock()
 				addedFiles = append(addedFiles, stdpath.Join(dstDir.GetPath(), name))
+				addedFilesLock.Unlock()
 				err := d.PutFile(ctx, name, IndexPlaceholderContent, dstDir.GetPath(), "text/plain")
 				if err != nil {
 					errFinal = err
@@ -347,7 +350,6 @@ func (d *Shadow) Put(ctx context.Context, dstDir model.Obj, streamer model.FileS
 	if err != nil {
 		errFinal = err
 	} else {
-		addedFiles = append(addedFiles, stdpath.Join(dstDir.GetPath(), encodedNames[0]))
 		err = op.Put(ctx, storage, actualPath, &WrapNameStreamer{
 			FileStreamer: streamer,
 			Name:         encodedNames[0],
@@ -356,7 +358,6 @@ func (d *Shadow) Put(ctx context.Context, dstDir model.Obj, streamer model.FileS
 			errFinal = err
 		}
 	}
-
 	group.Wait()
 
 	if errFinal != nil {
