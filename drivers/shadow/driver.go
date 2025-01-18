@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/alist-org/alist/v3/pkg/errgroup"
+	"github.com/avast/retry-go"
 	log "github.com/sirupsen/logrus"
 	stdpath "path"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/alist-org/alist/v3/internal/driver"
@@ -187,47 +188,37 @@ func (d *Shadow) MakeDir(ctx context.Context, parentDir model.Obj, dirName strin
 		return err
 	}
 
-	group := sync.WaitGroup{}
-	var errFinal error
+	group, ctx2 := errgroup.NewGroupWithContext(ctx, 0, retry.Attempts(3))
 	for _, dir := range dirs {
-		group.Add(1)
-		dir := dir
+		if utils.IsCanceled(ctx2) {
+			break
+		}
+		group.Go(func(ctx context.Context) error {
+			return fs.MakeDir(ctx, stdpath.Join(parentDir.GetPath(), dir))
+		})
+	}
+
+	if err = group.Wait(); err != nil {
 		go func() {
-			defer group.Done()
-			err := fs.MakeDir(ctx, stdpath.Join(parentDir.GetPath(), dir))
-			if err != nil {
-				errFinal = err
+			for _, dir := range dirs {
+				_ = fs.Remove(context.Background(), stdpath.Join(parentDir.GetPath(), dir))
 			}
 		}()
+		return err
 	}
-	group.Wait()
-
-	if errFinal != nil {
-		for _, dir := range dirs {
-			dir := dir
-			go func() {
-				_ = fs.Remove(ctx, stdpath.Join(parentDir.GetPath(), dir))
-			}()
-		}
-	}
-	return errFinal
+	return nil
 }
 
 func (d *Shadow) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
-	group := sync.WaitGroup{}
-	var errFinal error
+	group, _ := errgroup.NewGroupWithContext(ctx, 0, retry.Attempts(3))
 	for _, srcPath := range MustWrapObj(srcObj).GetRemotePaths() {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			err := fs.Move(ctx, srcPath, dstDir.GetPath())
-			if err != nil {
-				errFinal = err
-			}
-		}()
+		srcPath := srcPath
+		group.Go(func(ctx context.Context) error {
+			return fs.Move(ctx, srcPath, dstDir.GetPath())
+		})
 	}
-	group.Wait()
-	return errFinal
+
+	return group.Wait()
 }
 
 func (d *Shadow) Rename(ctx context.Context, srcObj model.Obj, newName string) error {
@@ -237,85 +228,68 @@ func (d *Shadow) Rename(ctx context.Context, srcObj model.Obj, newName string) e
 	}
 	oldNames := MustWrapObj(srcObj).GetRemotePaths()
 
-	group := sync.WaitGroup{}
-	var errFinal error
+	group, _ := errgroup.NewGroupWithContext(ctx, 0, retry.Attempts(3))
 	maxIt := max(len(newNames), len(oldNames))
 	for i := 0; i < maxIt; i++ {
 		i := i
-		group.Add(1)
-		go func() {
-			defer group.Done()
+		group.Go(func(ctx context.Context) error {
 			if i < len(newNames) {
 				newName1 := newNames[i]
 				if i < len(oldNames) {
 					oldName := oldNames[i]
-					err2 := fs.Rename(ctx, oldName, newName1)
-					if err2 != nil {
-						errFinal = err2
-					}
+					return fs.Rename(ctx, oldName, newName1)
 				} else {
 					remoteDir, _ := SplitTarget(srcObj.GetPath())
-					err := d.PutFile(ctx, newName1, IndexPlaceholderContent, remoteDir, "text/plain")
-					if err != nil {
-						errFinal = err
-					}
+					return d.PutFile(ctx, newName1, IndexPlaceholderContent, remoteDir, "text/plain")
 				}
 			} else if i >= len(newNames) && i < len(oldNames) {
 				oldName := oldNames[i]
 				_ = fs.Remove(ctx, oldName)
 			}
-		}()
+			return nil
+		})
 	}
-	group.Wait()
-	return errFinal
+
+	return group.Wait()
 }
 
 func (d *Shadow) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
-	group := sync.WaitGroup{}
-	var errFinal error
+	group, ctx2 := errgroup.NewGroupWithContext(ctx, 0, retry.Attempts(3))
 	var addedFiles []string
-	for _, name := range MustWrapObj(srcObj).GetRemotePaths() {
-		name := name
-		group.Add(1)
+	for _, srcPath := range MustWrapObj(srcObj).GetRemotePaths() {
+		if utils.IsCanceled(ctx2) {
+			break
+		}
+		srcPath := srcPath
+		_, name := SplitTarget(srcPath)
+		addedFiles = append(addedFiles, stdpath.Join(dstDir.GetPath(), name))
+		group.Go(func(ctx context.Context) error {
+			_, err := fs.Copy(ctx, srcPath, dstDir.GetPath())
+			return err
+		})
+	}
+
+	if err := group.Wait(); err != nil {
 		go func() {
-			defer group.Done()
-			addedFiles = append(addedFiles, stdpath.Join(dstDir.GetPath(), name))
-			_, err := fs.Copy(ctx, name, dstDir.GetPath())
-			if err != nil {
-				errFinal = err
+			for _, delFile := range addedFiles {
+				_ = fs.Remove(context.Background(), delFile)
 			}
 		}()
+		return err
 	}
-	group.Wait()
-
-	if errFinal != nil {
-		for _, delFile := range addedFiles {
-			delFile := delFile
-			go func() {
-				_ = fs.Remove(context.Background(), delFile)
-			}()
-		}
-	}
-
-	return errFinal
+	return nil
 }
 
 func (d *Shadow) Remove(ctx context.Context, obj model.Obj) error {
-	group := sync.WaitGroup{}
-	var errFinal error
+	group, _ := errgroup.NewGroupWithContext(ctx, 0, retry.Attempts(3))
 	for _, name := range MustWrapObj(obj).GetRemotePaths() {
 		name := name
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			err := fs.Remove(ctx, name)
-			if err != nil {
-				errFinal = err
-			}
-		}()
+		group.Go(func(ctx context.Context) error {
+			return fs.Remove(ctx, name)
+		})
 	}
-	group.Wait()
-	return errFinal
+
+	return group.Wait()
 }
 
 func (d *Shadow) Put(ctx context.Context, dstDir model.Obj, streamer model.FileStreamer, up driver.UpdateProgress) error {
@@ -324,51 +298,40 @@ func (d *Shadow) Put(ctx context.Context, dstDir model.Obj, streamer model.FileS
 		return err
 	}
 
-	group := sync.WaitGroup{}
-	var errFinal error
-	addedFiles := []string{stdpath.Join(dstDir.GetPath(), encodedNames[0])}
-
-	if len(encodedNames) > 1 {
-		addedFilesLock := sync.Mutex{}
-		for _, name := range encodedNames[1:] {
-			group.Add(1)
-			name := name
-			go func() {
-				defer group.Done()
-				addedFilesLock.Lock()
-				addedFiles = append(addedFiles, stdpath.Join(dstDir.GetPath(), name))
-				addedFilesLock.Unlock()
-				err := d.PutFile(ctx, name, IndexPlaceholderContent, dstDir.GetPath(), "text/plain")
+	group, ctx2 := errgroup.NewGroupWithContext(ctx, 0, retry.Attempts(3))
+	var addedFiles []string
+	for i, name := range encodedNames {
+		if utils.IsCanceled(ctx2) {
+			break
+		}
+		i, name := i, name
+		addedFiles = append(addedFiles, stdpath.Join(dstDir.GetPath(), name))
+		group.Go(func(ctx context.Context) error {
+			if i == 0 {
+				storage, actualPath, err := op.GetStorageAndActualPath(dstDir.GetPath())
 				if err != nil {
-					errFinal = err
+					return err
 				}
-			}()
-		}
+				return op.Put(ctx, storage, actualPath, &WrapNameStreamer{
+					FileStreamer: streamer,
+					Name:         name,
+				}, up, true)
+			} else {
+				return d.PutFile(ctx, name, IndexPlaceholderContent, dstDir.GetPath(), "text/plain")
+			}
+		})
 	}
 
-	storage, actualPath, err := op.GetStorageAndActualPath(dstDir.GetPath())
-	if err != nil {
-		errFinal = err
-	} else {
-		err = op.Put(ctx, storage, actualPath, &WrapNameStreamer{
-			FileStreamer: streamer,
-			Name:         encodedNames[0],
-		}, up, true)
-		if err != nil {
-			errFinal = err
-		}
-	}
-	group.Wait()
-
-	if errFinal != nil {
-		for _, delFile := range addedFiles {
-			delFile := delFile
-			go func() {
+	if err = group.Wait(); err != nil {
+		go func() {
+			for _, delFile := range addedFiles {
 				_ = fs.Remove(context.Background(), delFile)
-			}()
-		}
+			}
+		}()
+		return err
 	}
-	return errFinal
+
+	return nil
 }
 
 func (d *Shadow) PutFile(
