@@ -2,6 +2,7 @@ package netease_music
 
 import (
 	"context"
+	"github.com/alist-org/alist/v3/internal/driver"
 	"io"
 	"net/http"
 	"strconv"
@@ -72,6 +73,8 @@ func (lrc *LyricObj) getLyricLink() *model.Link {
 type ReqOption struct {
 	crypto  string
 	stream  model.FileStreamer
+	up      driver.UpdateProgress
+	ctx     context.Context
 	data    map[string]string
 	headers map[string]string
 	cookies []*http.Cookie
@@ -113,4 +116,17 @@ func (ch *Characteristic) merge(data map[string]string) map[string]interface{} {
 		body[k] = v
 	}
 	return body
+}
+
+type InlineReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
+func (rc *InlineReadCloser) Read(p []byte) (int, error) {
+	return rc.Reader.Read(p)
+}
+
+func (rc *InlineReadCloser) Close() error {
+	return rc.Closer.Close()
 }
