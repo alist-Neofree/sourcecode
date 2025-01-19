@@ -381,22 +381,23 @@ func (d *downloader) tryDownloadChunk(params *HttpRequestParams, ch *chunk) (int
 		if resp == nil {
 			return 0, err
 		}
-		switch resp.StatusCode {
-		default:
-			return 0, err
-		case 429:
-		case 502:
-		case 503:
-		case 504:
-		}
 		if ch.id == 0 { //第1个任务 有限的重试，超过重试就会结束请求
+			switch resp.StatusCode {
+			default:
+				return 0, err
+			case 429:
+			case 502:
+			case 503:
+			case 504:
+			}
 			<-time.After(time.Millisecond * 200)
 			return 0, &errNeedRetry{err: err}
 		}
+
+		// 来到这 说明第1个分片下载 连接成功了
+		// 后续分片下载出错都当超载处理
 		log.Debugf("err chunk_%d, try downloading:%v", ch.id, err)
 
-		// 迅雷云盘不开启 `视频URL` 超过一定并发就会返回503
-		// 继续增加并发 大概率也返回503
 		d.m.Lock()
 		isCancelConcurrency := ch.newConcurrency
 		if d.concurrency > 0 { // 取消剩余的并发任务
