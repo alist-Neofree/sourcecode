@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -269,12 +270,12 @@ func (d *Yun139) groupGetFiles(catalogID string) ([]model.Obj, error) {
 	for {
 		data := d.newJson(base.Json{
 			"groupID":         d.CloudID,
-			"catalogID":       catalogID,
+			"catalogID":       path.Base(catalogID),
 			"contentSortType": 0,
 			"sortDirection":   1,
 			"startNumber":     pageNum,
 			"endNumber":       pageNum + 99,
-			"path":            catalogID,
+			"path":            path.Join(d.RootFolderID, catalogID),
 		})
 
 		var resp QueryGroupContentListResp
