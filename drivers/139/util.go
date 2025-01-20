@@ -311,7 +311,7 @@ func (d *Yun139) groupGetFiles(catalogID string) ([]model.Obj, error) {
 			}
 			files = append(files, &f)
 		}
-		if pageNum > resp.Data.GetGroupContentResult.NodeCount {
+		if (pageNum + 99) > resp.Data.GetGroupContentResult.NodeCount {
 			break
 		}
 		pageNum = pageNum + 100
