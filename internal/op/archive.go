@@ -84,6 +84,9 @@ func getArchiveMeta(ctx context.Context, storage driver.Driver, path string, arg
 		meta, err := storageAr.GetArchiveMeta(ctx, obj, args.ArchiveArgs)
 		if !errors.Is(err, errs.NotImplement) {
 			archiveMetaProvider := &model.ArchiveMetaProvider{ArchiveMeta: meta, DriverProviding: true}
+			if meta.GetTree() != nil {
+				archiveMetaProvider.Sort = &storage.GetStorage().Sort
+			}
 			if !storage.Config().NoCache {
 				Expiration := time.Minute * time.Duration(storage.GetStorage().CacheExpiration)
 				archiveMetaProvider.Expiration = &Expiration
@@ -102,6 +105,9 @@ func getArchiveMeta(ctx context.Context, storage driver.Driver, path string, arg
 	}()
 	meta, err := t.GetMeta(ss, args.ArchiveArgs)
 	archiveMetaProvider := &model.ArchiveMetaProvider{ArchiveMeta: meta, DriverProviding: false}
+	if meta.GetTree() != nil {
+		archiveMetaProvider.Sort = &storage.GetStorage().Sort
+	}
 	if ss.Link.MFile == nil {
 		archiveMetaProvider.Expiration = ss.Link.Expiration
 		if archiveMetaProvider.Expiration == nil && !storage.Config().NoCache {

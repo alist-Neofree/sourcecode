@@ -32,6 +32,7 @@ type ArchiveMetaResp struct {
 	Comment     string               `json:"comment"`
 	IsEncrypted bool                 `json:"encrypted"`
 	Content     []ArchiveContentResp `json:"content"`
+	Sort        *model.Sort          `json:"sort,omitempty"`
 	RawURL      string               `json:"raw_url"`
 	Sign        string               `json:"sign"`
 }
@@ -129,6 +130,7 @@ func FsArchiveMeta(c *gin.Context) {
 		Comment:     ret.GetComment(),
 		IsEncrypted: ret.IsEncrypted(),
 		Content:     toContentResp(ret.GetTree()),
+		Sort:        ret.Sort,
 		RawURL:      fmt.Sprintf("%s%s%s", common.GetApiUrl(c.Request), api, utils.EncodePath(reqPath, true)),
 		Sign:        s,
 	})
