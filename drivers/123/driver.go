@@ -186,24 +186,27 @@ func (d *Pan123) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *Pan123) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
-	// const DEFAULT int64 = 10485760
-	h := md5.New()
-	// need to calculate md5 of the full content
-	tempFile, err := stream.CacheFullInTempFile()
-	if err != nil {
-		return err
+	etag := stream.GetHash().GetHash(utils.MD5)
+	if len(etag) < utils.MD5.Width {
+		// const DEFAULT int64 = 10485760
+		h := md5.New()
+		// need to calculate md5 of the full content
+		tempFile, err := stream.CacheFullInTempFile()
+		if err != nil {
+			return err
+		}
+		defer func() {
+			_ = tempFile.Close()
+		}()
+		if _, err = utils.CopyWithBuffer(h, tempFile); err != nil {
+			return err
+		}
+		_, err = tempFile.Seek(0, io.SeekStart)
+		if err != nil {
+			return err
+		}
+		etag = hex.EncodeToString(h.Sum(nil))
 	}
-	defer func() {
-		_ = tempFile.Close()
-	}()
-	if _, err = utils.CopyWithBuffer(h, tempFile); err != nil {
-		return err
-	}
-	_, err = tempFile.Seek(0, io.SeekStart)
-	if err != nil {
-		return err
-	}
-	etag := hex.EncodeToString(h.Sum(nil))
 	data := base.Json{
 		"driveId":      0,
 		"duplicate":    2, // 2->覆盖 1->重命名 0->默认
@@ -225,7 +228,7 @@ func (d *Pan123) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		return nil
 	}
 	if resp.Data.AccessKeyId == "" || resp.Data.SecretAccessKey == "" || resp.Data.SessionToken == "" {
-		err = d.newUpload(ctx, &resp, stream, tempFile, up)
+		err = d.newUpload(ctx, &resp, stream, up)
 		return err
 	} else {
 		cfg := &aws.Config{
@@ -245,7 +248,7 @@ func (d *Pan123) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		input := &s3manager.UploadInput{
 			Bucket: &resp.Data.Bucket,
 			Key:    &resp.Data.Key,
-			Body:   tempFile,
+			Body:   stream,
 		}
 		_, err = uploader.UploadWithContext(ctx, input)
 	}
