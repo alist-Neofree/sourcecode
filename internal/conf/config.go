@@ -53,12 +53,13 @@ type TaskConfig struct {
 }
 
 type TasksConfig struct {
-	Download         TaskConfig `json:"download" envPrefix:"DOWNLOAD_"`
-	Transfer         TaskConfig `json:"transfer" envPrefix:"TRANSFER_"`
-	Upload           TaskConfig `json:"upload" envPrefix:"UPLOAD_"`
-	Copy             TaskConfig `json:"copy" envPrefix:"COPY_"`
-	Decompress       TaskConfig `json:"decompress" envPrefix:"DECOMPRESS_"`
-	DecompressUpload TaskConfig `json:"decompress_upload" envPrefix:"DECOMPRESS_UPLOAD_"`
+	Download           TaskConfig `json:"download" envPrefix:"DOWNLOAD_"`
+	Transfer           TaskConfig `json:"transfer" envPrefix:"TRANSFER_"`
+	Upload             TaskConfig `json:"upload" envPrefix:"UPLOAD_"`
+	Copy               TaskConfig `json:"copy" envPrefix:"COPY_"`
+	Decompress         TaskConfig `json:"decompress" envPrefix:"DECOMPRESS_"`
+	DecompressUpload   TaskConfig `json:"decompress_upload" envPrefix:"DECOMPRESS_UPLOAD_"`
+	AllowRetryCanceled bool       `json:"allow_retry_canceled" env:"ALLOW_RETRY_CANCELED"`
 }
 
 type Cors struct {
@@ -180,6 +181,7 @@ func DefaultConfig() *Config {
 				Workers:  5,
 				MaxRetry: 2,
 			},
+			AllowRetryCanceled: false,
 		},
 		Cors: Cors{
 			AllowOrigins: []string{"*"},
