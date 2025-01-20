@@ -122,7 +122,8 @@ const InMemoryBufMaxSizeBytes = InMemoryBufMaxSize * 1024 * 1024
 // also support a peeking RangeRead at very start, but won't buffer more than 10MB data in memory
 func (f *FileStream) RangeRead(httpRange http_range.Range) (io.Reader, error) {
 	if httpRange.Length == -1 {
-		httpRange.Length = f.GetSize()
+		// 参考 internal/net/request.go
+		httpRange.Length = f.GetSize() - httpRange.Start
 	}
 	if f.peekBuff != nil && httpRange.Start < int64(f.peekBuff.Len()) && httpRange.Start+httpRange.Length-1 < int64(f.peekBuff.Len()) {
 		return io.NewSectionReader(f.peekBuff, httpRange.Start, httpRange.Length), nil
@@ -210,7 +211,7 @@ func NewSeekableStream(fs FileStream, link *model.Link) (*SeekableStream, error)
 // RangeRead is not thread-safe, pls use it in single thread only.
 func (ss *SeekableStream) RangeRead(httpRange http_range.Range) (io.Reader, error) {
 	if httpRange.Length == -1 {
-		httpRange.Length = ss.GetSize()
+		httpRange.Length = ss.GetSize() - httpRange.Start
 	}
 	if ss.mFile != nil {
 		return io.NewSectionReader(ss.mFile, httpRange.Start, httpRange.Length), nil

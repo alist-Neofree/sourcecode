@@ -52,7 +52,8 @@ import (
 //
 // If the caller has set w's ETag header formatted per RFC 7232, section 2.3,
 // ServeHTTP uses it to handle requests using If-Match, If-None-Match, or If-Range.
-func ServeHTTP(w http.ResponseWriter, r *http.Request, name string, modTime time.Time, size int64, RangeReaderFunc model.RangeReaderFunc) {
+func ServeHTTP(w http.ResponseWriter, r *http.Request, name string, modTime time.Time, size int64, RangeReadCloser model.RangeReadCloserIF) {
+	defer RangeReadCloser.Close()
 	setLastModified(w, modTime)
 	done, rangeReq := checkPreconditions(w, r, modTime)
 	if done {
@@ -116,7 +117,7 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request, name string, modTime time
 	ctx := r.Context()
 	switch {
 	case len(ranges) == 0:
-		reader, err := RangeReaderFunc(ctx, http_range.Range{Length: -1})
+		reader, err := RangeReadCloser.RangeRead(ctx, http_range.Range{Length: -1})
 		if err != nil {
 			code = http.StatusRequestedRangeNotSatisfiable
 			if err == ErrExceedMaxConcurrency {
@@ -139,7 +140,7 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request, name string, modTime time
 		// does not request multiple parts might not support
 		// multipart responses."
 		ra := ranges[0]
-		sendContent, err = RangeReaderFunc(ctx, ra)
+		sendContent, err = RangeReadCloser.RangeRead(ctx, ra)
 		if err != nil {
 			code = http.StatusRequestedRangeNotSatisfiable
 			if err == ErrExceedMaxConcurrency {
@@ -170,7 +171,7 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request, name string, modTime time
 					pw.CloseWithError(err)
 					return
 				}
-				reader, err := RangeReaderFunc(ctx, ra)
+				reader, err := RangeReadCloser.RangeRead(ctx, ra)
 				if err != nil {
 					pw.CloseWithError(err)
 					return
@@ -179,14 +180,12 @@ func ServeHTTP(w http.ResponseWriter, r *http.Request, name string, modTime time
 					pw.CloseWithError(err)
 					return
 				}
-				//defer reader.Close()
 			}
 
 			mw.Close()
 			pw.Close()
 		}()
 	}
-	//defer sendContent.Close()
 
 	w.Header().Set("Accept-Ranges", "bytes")
 	if w.Header().Get("Content-Encoding") == "" {

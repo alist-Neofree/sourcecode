@@ -385,10 +385,10 @@ func (d *downloader) tryDownloadChunk(params *HttpRequestParams, ch *chunk) (int
 			switch resp.StatusCode {
 			default:
 				return 0, err
-			case 429:
-			case 502:
-			case 503:
-			case 504:
+			case http.StatusTooManyRequests:
+			case http.StatusBadGateway:
+			case http.StatusServiceUnavailable:
+			case http.StatusGatewayTimeout:
 			}
 			<-time.After(time.Millisecond * 200)
 			return 0, &errNeedRetry{err: err}
