@@ -10,6 +10,7 @@ import (
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/go-resty/resty/v2"
 	jsoniter "github.com/json-iterator/go"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -56,15 +57,22 @@ func GetNextDir(wholePath string, basePath string) string {
 }
 
 // 发送 GET 请求
-func GetRequest(url string, CacheExpiration int) (*resty.Response, error) {
+func GetRequest(url string, cacheExpiration int, token string) (*resty.Response, error) {
+	log.SetLevel(log.DebugLevel)
 	mu.Lock()
-	if res, ok := cache[url]; ok && time.Now().Before(created[url].Add(time.Duration(CacheExpiration)*time.Minute)) {
+	if res, ok := cache[url]; ok && time.Now().Before(created[url].Add(time.Duration(cacheExpiration)*time.Minute)) {
 		mu.Unlock()
+		log.Debug("cache request", url)
 		return res, nil
 	}
 	mu.Unlock()
 
-	res, err := base.RestyClient.R().Get(url)
+	req := base.RestyClient.R()
+	if token != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	}
+	res, err := req.Get(url)
+	log.Debug("nocache request", url)
 	if err != nil || res.StatusCode() != 200 {
 		return nil, fmt.Errorf("request fail: %v", err)
 	}
@@ -78,10 +86,11 @@ func GetRequest(url string, CacheExpiration int) (*resty.Response, error) {
 }
 
 // 获取 README、LICENSE 等文件
-func GetGithubOtherFile(repo string, basePath string, CacheExpiration int) (*[]File, error) {
+func GetGithubOtherFile(repo string, basePath string, cacheExpiration int, token string) (*[]File, error) {
 	res, _ := GetRequest(
 		fmt.Sprintf("https://api.github.com/repos/%s/contents/", strings.Trim(repo, "/")),
-		CacheExpiration,
+		cacheExpiration,
+		token,
 	)
 	body := jsoniter.Get(res.Body())
 	var files []File
@@ -108,10 +117,11 @@ func GetGithubOtherFile(repo string, basePath string, CacheExpiration int) (*[]F
 }
 
 // 获取 GitHub Release 详细信息
-func GetRepoReleaseInfo(repo string, basePath string, CacheExpiration int) (*GithubReleasesData, error) {
+func GetRepoReleaseInfo(repo string, basePath string, cacheExpiration int, token string) (*GithubReleasesData, error) {
 	res, _ := GetRequest(
 		fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", strings.Trim(repo, "/")),
-		CacheExpiration,
+		cacheExpiration,
+		token,
 	)
 	body := res.Body()
 	assets := jsoniter.Get(res.Body(), "assets")

@@ -48,14 +48,14 @@ func (d *GithubReleases) List(ctx context.Context, dir model.Obj, args model.Lis
 
 	for _, repo := range d.repoList {
 		if repo.Path == path { // 与仓库路径相同
-			resp, err := GetRepoReleaseInfo(repo.RepoName, path, d.Storage.CacheExpiration)
+			resp, err := GetRepoReleaseInfo(repo.RepoName, path, d.Storage.CacheExpiration, d.Addition.Token)
 			if err != nil {
 				return nil, err
 			}
 			files = append(files, resp.Files...)
 
 			if d.Addition.ShowReadme {
-				resp, err := GetGithubOtherFile(repo.RepoName, path, d.Storage.CacheExpiration)
+				resp, err := GetGithubOtherFile(repo.RepoName, path, d.Storage.CacheExpiration, d.Addition.Token)
 				if err != nil {
 					return nil, err
 				}
@@ -67,7 +67,7 @@ func (d *GithubReleases) List(ctx context.Context, dir model.Obj, args model.Lis
 			if nextDir == "" {
 				continue
 			}
-			repo, _ := GetRepoReleaseInfo(repo.RepoName, path, d.Storage.CacheExpiration)
+			repo, _ := GetRepoReleaseInfo(repo.RepoName, path, d.Storage.CacheExpiration, d.Addition.Token)
 
 			hasSameDir := false
 			for index, file := range files {
