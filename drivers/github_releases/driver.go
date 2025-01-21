@@ -11,6 +11,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/pkg/utils"
 )
 
 type GithubReleases struct {
@@ -47,17 +48,18 @@ func (d *GithubReleases) List(ctx context.Context, dir model.Obj, args model.Lis
 
 	for _, repo := range d.repoList {
 		if repo.Path == path { // 与仓库路径相同
-			tempFiles, err := RequestGithubReleases(repo.RepoName, path)
+			resp, err := GetRepoReleaseInfo(repo.RepoName, path, d.Storage.CacheExpiration)
 			if err != nil {
 				return nil, err
 			}
-			files = append(files, tempFiles...)
+			files = append(files, resp.Files...)
+
 			if d.Addition.ShowReadme {
-				tempFiles, err = RequestGithubOtherFile(repo.RepoName, path)
+				resp, err := GetGithubOtherFile(repo.RepoName, path, d.Storage.CacheExpiration)
 				if err != nil {
 					return nil, err
 				}
-				files = append(files, tempFiles...)
+				files = append(files, *resp...)
 			}
 
 		} else if strings.HasPrefix(repo.Path, path) { // 仓库路径是目录的子目录
@@ -65,23 +67,40 @@ func (d *GithubReleases) List(ctx context.Context, dir model.Obj, args model.Lis
 			if nextDir == "" {
 				continue
 			}
-			files = append(files, File{
-				FileName: nextDir,
-				Size:     0,
-				CreateAt: time.Time{},
-				UpdateAt: time.Now(),
-				Url:      "",
-				Type:     "dir",
-				Path:     fmt.Sprintf("%s/%s", path, nextDir),
-			})
+			repo, _ := GetRepoReleaseInfo(repo.RepoName, path, d.Storage.CacheExpiration)
+
+			hasSameDir := false
+			for index, file := range files {
+				if file.FileName == nextDir {
+					hasSameDir = true
+					files[index].Size += repo.Size
+					files[index].UpdateAt = func(a time.Time, b time.Time) time.Time {
+						if a.After(b) {
+							return a
+						}
+						return b
+					}(files[index].UpdateAt, repo.UpdateAt)
+					break
+				}
+			}
+
+			if !hasSameDir {
+				files = append(files, File{
+					FileName: nextDir,
+					Size:     repo.Size,
+					CreateAt: repo.CreateAt,
+					UpdateAt: repo.UpdateAt,
+					Url:      repo.Url,
+					Type:     "dir",
+					Path:     fmt.Sprintf("%s/%s", path, nextDir),
+				})
+			}
 		}
 	}
 
-	objs := make([]model.Obj, len(files))
-	for i, file := range files {
-		objs[i] = file
-	}
-	return objs, nil
+	return utils.SliceConvert(files, func(src File) (model.Obj, error) {
+		return src, nil
+	})
 }
 
 func (d *GithubReleases) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {

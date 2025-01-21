@@ -51,3 +51,16 @@ func (f File) GetID() string {
 func (f File) Thumb() string {
 	return ""
 }
+
+type GithubReleasesData struct {
+	Files    []File    `json:"files"`
+	Size     int64     `json:"size"`
+	UpdateAt time.Time `json:"chtime"`
+	CreateAt time.Time `json:"time"`
+	Url      string    `json:"url"`
+}
+
+type Repo struct {
+	Path     string
+	RepoName string
+}
