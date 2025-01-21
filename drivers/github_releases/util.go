@@ -58,23 +58,25 @@ func GetNextDir(wholePath string, basePath string) string {
 
 // 发送 GET 请求
 func GetRequest(url string, cacheExpiration int, token string) (*resty.Response, error) {
-	log.SetLevel(log.DebugLevel)
 	mu.Lock()
 	if res, ok := cache[url]; ok && time.Now().Before(created[url].Add(time.Duration(cacheExpiration)*time.Minute)) {
 		mu.Unlock()
-		log.Debug("cache request", url)
 		return res, nil
 	}
 	mu.Unlock()
 
 	req := base.RestyClient.R()
 	if token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+		req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
+	req.SetHeader("Accept", "application/vnd.github+json")
+	req.SetHeader("X-GitHub-Api-Version", "2022-11-28")
 	res, err := req.Get(url)
-	log.Debug("nocache request", url)
-	if err != nil || res.StatusCode() != 200 {
-		return nil, fmt.Errorf("request fail: %v", err)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode() != 200 {
+		log.Warn("failed to get request: ", res.StatusCode(), res.String())
 	}
 
 	mu.Lock()
@@ -118,12 +120,14 @@ func GetGithubOtherFile(repo string, basePath string, cacheExpiration int, token
 
 // 获取 GitHub Release 详细信息
 func GetRepoReleaseInfo(repo string, basePath string, cacheExpiration int, token string) (*GithubReleasesData, error) {
-	res, _ := GetRequest(
-		fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", strings.Trim(repo, "/")),
-		cacheExpiration,
-		token,
-	)
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", strings.Trim(repo, "/"))
+	res, _ := GetRequest(url, cacheExpiration, token)
 	body := res.Body()
+
+	if jsoniter.Get(res.Body(), "status").ToInt64() != 0 {
+		return &GithubReleasesData{}, fmt.Errorf("%s", res.String())
+	}
+
 	assets := jsoniter.Get(res.Body(), "assets")
 	var files []File
 
@@ -168,4 +172,11 @@ func GetRepoReleaseInfo(repo string, basePath string, cacheExpiration int, token
 			return t
 		}(),
 	}, nil
+}
+
+func ClearCache() {
+	mu.Lock()
+	cache = make(map[string]*resty.Response)
+	created = make(map[string]time.Time)
+	mu.Unlock()
 }

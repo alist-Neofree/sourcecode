@@ -39,6 +39,7 @@ func (d *GithubReleases) Init(ctx context.Context) error {
 }
 
 func (d *GithubReleases) Drop(ctx context.Context) error {
+	ClearCache()
 	return nil
 }
 
