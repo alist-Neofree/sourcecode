@@ -88,7 +88,7 @@ type RangeReadCloser struct {
 	utils.Closers
 }
 
-func (r RangeReadCloser) RangeRead(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
+func (r *RangeReadCloser) RangeRead(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
 	rc, err := r.RangeReader(ctx, httpRange)
 	r.Closers.Add(rc)
 	return rc, err
