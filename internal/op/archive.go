@@ -108,12 +108,12 @@ func getArchiveMeta(ctx context.Context, storage driver.Driver, path string, arg
 	if meta.GetTree() != nil {
 		archiveMetaProvider.Sort = &storage.GetStorage().Sort
 	}
-	if ss.Link.MFile == nil {
+	if !storage.Config().NoCache {
+		Expiration := time.Minute * time.Duration(storage.GetStorage().CacheExpiration)
+		archiveMetaProvider.Expiration = &Expiration
+	} else if ss.Link.MFile == nil {
+		// alias、crypt 驱动
 		archiveMetaProvider.Expiration = ss.Link.Expiration
-		if archiveMetaProvider.Expiration == nil && !storage.Config().NoCache {
-			Expiration := time.Minute * time.Duration(storage.GetStorage().CacheExpiration)
-			archiveMetaProvider.Expiration = &Expiration
-		}
 	}
 	return obj, archiveMetaProvider, err
 }

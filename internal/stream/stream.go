@@ -188,6 +188,7 @@ func NewSeekableStream(fs FileStream, link *model.Link) (*SeekableStream, error)
 
 		if ss.Link.RangeReadCloser != nil {
 			ss.rangeReadCloser = ss.Link.RangeReadCloser
+			ss.Add(ss.rangeReadCloser)
 			return &ss, nil
 		}
 		if len(ss.Link.URL) > 0 {
@@ -196,6 +197,7 @@ func NewSeekableStream(fs FileStream, link *model.Link) (*SeekableStream, error)
 				return nil, err
 			}
 			ss.rangeReadCloser = rrc
+			ss.Add(rrc)
 			return &ss, nil
 		}
 	}
@@ -247,8 +249,6 @@ func (ss *SeekableStream) Read(p []byte) (n int, err error) {
 			return 0, nil
 		}
 		ss.Reader = io.NopCloser(rc)
-		ss.Closers.Add(rc)
-
 	}
 	return ss.Reader.Read(p)
 }
@@ -383,9 +383,6 @@ func (r *RangeReadReadAtSeeker) getReaderAtOffset(off int64) (*readerCur, error)
 	reader, err := r.ss.RangeRead(http_range.Range{Start: off, Length: r.ss.GetSize() - off})
 	if err != nil {
 		return nil, err
-	}
-	if c, ok := reader.(io.Closer); ok {
-		r.ss.Closers.Add(c)
 	}
 	rc := &readerCur{reader: reader, cur: off}
 	r.readers = append(r.readers, rc)
