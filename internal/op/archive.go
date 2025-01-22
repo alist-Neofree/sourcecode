@@ -104,6 +104,9 @@ func getArchiveMeta(ctx context.Context, storage driver.Driver, path string, arg
 		}
 	}()
 	meta, err := t.GetMeta(ss, args.ArchiveArgs)
+	if err != nil {
+		return nil, nil, err
+	}
 	archiveMetaProvider := &model.ArchiveMetaProvider{ArchiveMeta: meta, DriverProviding: false}
 	if meta.GetTree() != nil {
 		archiveMetaProvider.Sort = &storage.GetStorage().Sort
@@ -133,10 +136,10 @@ func ListArchive(ctx context.Context, storage driver.Driver, path string, args m
 			log.Debugf("use cache when list archive [%s]%s", path, args.InnerPath)
 			return files, nil
 		}
-		if meta, ok := archiveMetaCache.Get(metaKey); ok {
-			log.Debugf("use meta cache when list archive [%s]%s", path, args.InnerPath)
-			return getChildrenFromArchiveMeta(meta, args.InnerPath)
-		}
+		// if meta, ok := archiveMetaCache.Get(metaKey); ok {
+		// 	log.Debugf("use meta cache when list archive [%s]%s", path, args.InnerPath)
+		// 	return getChildrenFromArchiveMeta(meta, args.InnerPath)
+		// }
 	}
 	objs, err, _ := archiveListG.Do(key, func() ([]model.Obj, error) {
 		obj, files, err := listArchive(ctx, storage, path, args)
