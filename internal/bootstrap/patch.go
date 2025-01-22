@@ -38,7 +38,7 @@ func compareVersion(majorA, minorA, patchNumA, majorB, minorB, patchNumB int) bo
 }
 
 func InitUpgradePatch() {
-	if conf.Version == "dev" {
+	if conf.Version == "dev" || conf.Version == "beta" {
 		return
 	}
 	if LastLaunchedVersion == conf.Version {
