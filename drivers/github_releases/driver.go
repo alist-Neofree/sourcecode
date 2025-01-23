@@ -18,7 +18,7 @@ type GithubReleases struct {
 	model.Storage
 	Addition
 
-	repoList []Repo
+	releases []Release
 }
 
 func (d *GithubReleases) Config() driver.Config {
@@ -30,11 +30,12 @@ func (d *GithubReleases) GetAddition() driver.Additional {
 }
 
 func (d *GithubReleases) Init(ctx context.Context) error {
-	repos, err := ParseRepos(d.Addition.RepoStructure)
+	SetHeader(d.Addition.Token)
+	repos, err := ParseRepos(d.Addition.RepoStructure, d.Addition.ShowAllVersion)
 	if err != nil {
 		return err
 	}
-	d.repoList = repos
+	d.releases = repos
 	return nil
 }
 
@@ -47,16 +48,16 @@ func (d *GithubReleases) List(ctx context.Context, dir model.Obj, args model.Lis
 	files := make([]File, 0)
 	path := fmt.Sprintf("/%s", strings.Trim(dir.GetPath(), "/"))
 
-	for _, repo := range d.repoList {
+	for _, repo := range d.releases {
 		if repo.Path == path { // 与仓库路径相同
-			resp, err := GetRepoReleaseInfo(repo.RepoName, path, d.Storage.CacheExpiration, d.Addition.Token)
+			resp, err := GetRepoReleaseInfo(repo.RepoName, repo.ID, path, d.Storage.CacheExpiration)
 			if err != nil {
 				return nil, err
 			}
 			files = append(files, resp.Files...)
 
 			if d.Addition.ShowReadme {
-				resp, err := GetGithubOtherFile(repo.RepoName, path, d.Storage.CacheExpiration, d.Addition.Token)
+				resp, err := GetGithubOtherFile(repo.RepoName, path, d.Storage.CacheExpiration)
 				if err != nil {
 					return nil, err
 				}
@@ -68,7 +69,20 @@ func (d *GithubReleases) List(ctx context.Context, dir model.Obj, args model.Lis
 			if nextDir == "" {
 				continue
 			}
-			repo, _ := GetRepoReleaseInfo(repo.RepoName, path, d.Storage.CacheExpiration, d.Addition.Token)
+			if d.Addition.ShowAllVersion {
+				files = append(files, File{
+					FileName: nextDir,
+					Size:     0,
+					CreateAt: time.Time{},
+					UpdateAt: time.Time{},
+					Url:      "",
+					Type:     "dir",
+					Path:     fmt.Sprintf("%s/%s", path, nextDir),
+				})
+				continue
+			}
+
+			repo, _ := GetRepoReleaseInfo(repo.RepoName, repo.Version, path, d.Storage.CacheExpiration)
 
 			hasSameDir := false
 			for index, file := range files {

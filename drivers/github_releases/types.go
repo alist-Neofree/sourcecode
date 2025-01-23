@@ -52,7 +52,7 @@ func (f File) Thumb() string {
 	return ""
 }
 
-type GithubReleasesData struct {
+type ReleasesData struct {
 	Files    []File    `json:"files"`
 	Size     int64     `json:"size"`
 	UpdateAt time.Time `json:"chtime"`
@@ -60,7 +60,9 @@ type GithubReleasesData struct {
 	Url      string    `json:"url"`
 }
 
-type Repo struct {
-	Path     string
-	RepoName string
+type Release struct {
+	Path     string // 挂载路径
+	RepoName string // 仓库名称
+	Version  string // 版本号, tag
+	ID       string // 版本ID
 }
