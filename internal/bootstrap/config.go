@@ -50,7 +50,7 @@ func InitConfig() {
 			log.Fatalf("load config error: %+v", err)
 		}
 		LastLaunchedVersion = conf.Conf.LastLaunchedVersion
-		if (conf.Version != "dev" && conf.Version != "beta") || LastLaunchedVersion == "" {
+		if strings.HasPrefix(conf.Version, "v") || LastLaunchedVersion == "" {
 			conf.Conf.LastLaunchedVersion = conf.Version
 		}
 		// update config.json struct

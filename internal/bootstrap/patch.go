@@ -5,6 +5,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/bootstrap/patch"
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/pkg/utils"
+	"strings"
 )
 
 var LastLaunchedVersion = ""
@@ -38,7 +39,7 @@ func compareVersion(majorA, minorA, patchNumA, majorB, minorB, patchNumB int) bo
 }
 
 func InitUpgradePatch() {
-	if conf.Version == "dev" || conf.Version == "beta" {
+	if !strings.HasPrefix(conf.Version, "v") {
 		return
 	}
 	if LastLaunchedVersion == conf.Version {
