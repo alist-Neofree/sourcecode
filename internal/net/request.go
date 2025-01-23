@@ -111,6 +111,7 @@ type downloader struct {
 	pos         int64
 	maxPos      int64
 	m2          sync.Mutex
+	readingID   int // 正在被读取的id
 }
 
 type ConcurrencyLimit struct {
@@ -282,15 +283,15 @@ func (d *downloader) getBuf(id int) (b *Buf) {
 	return d.bufs[id%len(d.bufs)]
 }
 func (d *downloader) finishBuf(id int) (isLast bool, nextBuf *Buf) {
-	if id >= d.maxPart-1 {
+	id++
+	if id >= d.maxPart {
 		return true, nil
 	}
 
 	d.sendChunkTask(false)
 
-	nextBuf = d.getBuf(id + 1)
-	nextBuf.reading = true
-	return false, nextBuf
+	d.readingID = id
+	return false, d.getBuf(id)
 }
 
 // downloadPart is an individual goroutine worker reading from the ch channel
@@ -391,7 +392,7 @@ func (d *downloader) tryDownloadChunk(params *HttpRequestParams, ch *chunk) (int
 			case http.StatusGatewayTimeout:
 			}
 			<-time.After(time.Millisecond * 200)
-			return 0, &errNeedRetry{err: err}
+			return 0, &errNeedRetry{err: fmt.Errorf("http request failure,status: %d", resp.StatusCode)}
 		}
 
 		// 来到这 说明第1个分片下载 连接成功了
@@ -412,7 +413,7 @@ func (d *downloader) tryDownloadChunk(params *HttpRequestParams, ch *chunk) (int
 			return 0, errCancelConcurrency
 		}
 		d.m.Unlock()
-		if !ch.buf.reading { //正在被读取的优先重试
+		if ch.id != d.readingID { //正在被读取的优先重试
 			d.m2.Lock()
 			defer d.m2.Unlock()
 			<-time.After(time.Millisecond * 200)
@@ -610,8 +611,6 @@ type Buf struct {
 	ctx    context.Context
 	off    int
 	rw     sync.Mutex
-
-	reading bool // 是否正在被读取
 }
 
 // NewBuf is a buffer that can have 1 read & 1 write at the same time.
@@ -628,7 +627,6 @@ func (br *Buf) Reset(size int) {
 	br.buffer.Reset()
 	br.size = size
 	br.off = 0
-	br.reading = false
 }
 
 func (br *Buf) Read(p []byte) (n int, err error) {

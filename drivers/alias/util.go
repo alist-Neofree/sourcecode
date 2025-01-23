@@ -100,7 +100,7 @@ func (d *Alias) link(ctx context.Context, dst, sub string, args model.LinkArgs) 
 	if err != nil {
 		return nil, err
 	}
-	if _, ok := storage.(*Alias); !ok && args.Proxy {
+	if _, ok := storage.(*Alias); !ok && !args.Redirect {
 		link, _, err := op.Link(ctx, storage, reqActualPath, args)
 		return link, err
 	}

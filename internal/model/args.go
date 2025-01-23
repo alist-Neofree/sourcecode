@@ -17,11 +17,11 @@ type ListArgs struct {
 }
 
 type LinkArgs struct {
-	IP      string
-	Header  http.Header
-	Type    string
-	HttpReq *http.Request
-	Proxy   bool
+	IP       string
+	Header   http.Header
+	Type     string
+	HttpReq  *http.Request
+	Redirect bool
 }
 
 type Link struct {

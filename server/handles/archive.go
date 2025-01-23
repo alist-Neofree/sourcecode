@@ -281,10 +281,11 @@ func ArchiveDown(c *gin.Context) {
 		link, _, err := fs.ArchiveDriverExtract(c, archiveRawPath, model.ArchiveInnerArgs{
 			ArchiveArgs: model.ArchiveArgs{
 				LinkArgs: model.LinkArgs{
-					IP:      c.ClientIP(),
-					Header:  c.Request.Header,
-					Type:    c.Query("type"),
-					HttpReq: c.Request,
+					IP:       c.ClientIP(),
+					Header:   c.Request.Header,
+					Type:     c.Query("type"),
+					HttpReq:  c.Request,
+					Redirect: true,
 				},
 				Password: password,
 			},
