@@ -15,53 +15,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-type BatchRenameReq struct {
-	SrcDir        string `json:"src_dir"`
-	RenameObjects []struct {
-		SrcName string `json:"src_name"`
-		NewName string `json:"new_name"`
-	} `json:"rename_objects"`
-}
-
-func FsBatchRename(c *gin.Context) {
-	var req BatchRenameReq
-	if err := c.ShouldBind(&req); err != nil {
-		common.ErrorResp(c, err, 400)
-		return
-	}
-	user := c.MustGet("user").(*model.User)
-	if !user.CanRename() {
-		common.ErrorResp(c, errs.PermissionDenied, 403)
-		return
-	}
-
-	reqPath, err := user.JoinPath(req.SrcDir)
-	if err != nil {
-		common.ErrorResp(c, err, 403)
-		return
-	}
-
-	meta, err := op.GetNearestMeta(reqPath)
-	if err != nil {
-		if !errors.Is(errors.Cause(err), errs.MetaNotFound) {
-			common.ErrorResp(c, err, 500, true)
-			return
-		}
-	}
-	c.Set("meta", meta)
-	for _, renameObject := range req.RenameObjects {
-		if renameObject.SrcName == "" || renameObject.NewName == "" {
-			continue
-		}
-		filePath := fmt.Sprintf("%s/%s", reqPath, renameObject.SrcName)
-		if err := fs.Rename(c, filePath, renameObject.NewName); err != nil {
-			common.ErrorResp(c, err, 500)
-			return
-		}
-	}
-	common.SuccessResp(c)
-}
-
 type RecursiveMoveReq struct {
 	SrcDir    string `json:"src_dir"`
 	DstDir    string `json:"dst_dir"`
@@ -174,6 +127,53 @@ func FsRecursiveMove(c *gin.Context) {
 		}
 	}
 
+	common.SuccessResp(c)
+}
+
+type BatchRenameReq struct {
+	SrcDir        string `json:"src_dir"`
+	RenameObjects []struct {
+		SrcName string `json:"src_name"`
+		NewName string `json:"new_name"`
+	} `json:"rename_objects"`
+}
+
+func FsBatchRename(c *gin.Context) {
+	var req BatchRenameReq
+	if err := c.ShouldBind(&req); err != nil {
+		common.ErrorResp(c, err, 400)
+		return
+	}
+	user := c.MustGet("user").(*model.User)
+	if !user.CanRename() {
+		common.ErrorResp(c, errs.PermissionDenied, 403)
+		return
+	}
+
+	reqPath, err := user.JoinPath(req.SrcDir)
+	if err != nil {
+		common.ErrorResp(c, err, 403)
+		return
+	}
+
+	meta, err := op.GetNearestMeta(reqPath)
+	if err != nil {
+		if !errors.Is(errors.Cause(err), errs.MetaNotFound) {
+			common.ErrorResp(c, err, 500, true)
+			return
+		}
+	}
+	c.Set("meta", meta)
+	for _, renameObject := range req.RenameObjects {
+		if renameObject.SrcName == "" || renameObject.NewName == "" {
+			continue
+		}
+		filePath := fmt.Sprintf("%s/%s", reqPath, renameObject.SrcName)
+		if err := fs.Rename(c, filePath, renameObject.NewName); err != nil {
+			common.ErrorResp(c, err, 500)
+			return
+		}
+	}
 	common.SuccessResp(c)
 }
 
