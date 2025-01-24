@@ -30,19 +30,24 @@ func ParseRepos(text string, allVersion bool) ([]Release, error) {
 			continue
 		}
 		parts := strings.Split(line, ":")
-		if len(parts) != 2 {
+		path, repo := "", ""
+		if len(parts) == 1 {
+			path = "/"
+			repo = parts[0]
+		} else if len(parts) == 2 {
+			path = fmt.Sprintf("/%s", strings.Trim(parts[0], "/"))
+			repo = parts[1]
+		} else {
 			return nil, fmt.Errorf("invalid format: %s", line)
 		}
 
-		path := fmt.Sprintf("/%s", strings.Trim(parts[0], "/"))
-
 		if allVersion {
-			releases, _ := GetAllVersion(parts[1], path)
+			releases, _ := GetAllVersion(repo, path)
 			repos = append(repos, *releases...)
 		} else {
 			repos = append(repos, Release{
 				Path:     path,
-				RepoName: parts[1],
+				RepoName: repo,
 				Version:  "latest",
 				ID:       "latest",
 			})
