@@ -5,6 +5,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	stdpath "path"
+	"strings"
+	"sync"
+	"text/template"
+
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
@@ -13,12 +20,6 @@ import (
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
-	"io"
-	"net/http"
-	stdpath "path"
-	"strings"
-	"sync"
-	"text/template"
 )
 
 type Github struct {
@@ -657,7 +658,7 @@ func (d *Github) putBlob(ctx context.Context, s model.FileStreamer, up driver.Up
 	contentReader, contentWriter := io.Pipe()
 	go func() {
 		encoder := base64.NewEncoder(base64.StdEncoding, contentWriter)
-		if _, err := io.Copy(encoder, s); err != nil {
+		if _, err := utils.CopyWithBuffer(encoder, s); err != nil {
 			_ = contentWriter.CloseWithError(err)
 			return
 		}

@@ -49,7 +49,7 @@ func (u *uploader) init(stream model.FileStreamer) error {
 	}
 
 	h := md5.New()
-	_, err := io.Copy(h, stream)
+	_, err := utils.CopyWithBuffer(h, stream)
 	if err != nil {
 		return err
 	}
