@@ -15,7 +15,7 @@ import (
 // Auth is a middleware that checks if the user is logged in.
 // if token is empty, set user to guest
 func Auth(c *gin.Context) {
-	token := c.GetHeader("Authorization")
+	token := common.GetToken(c)
 	if subtle.ConstantTimeCompare([]byte(token), []byte(setting.GetStr(conf.Token))) == 1 {
 		admin, err := op.GetAdmin()
 		if err != nil {
@@ -74,7 +74,7 @@ func Auth(c *gin.Context) {
 }
 
 func Authn(c *gin.Context) {
-	token := c.GetHeader("Authorization")
+	token := common.GetToken(c)
 	if subtle.ConstantTimeCompare([]byte(token), []byte(setting.GetStr(conf.Token))) == 1 {
 		admin, err := op.GetAdmin()
 		if err != nil {

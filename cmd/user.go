@@ -33,7 +33,7 @@ func DelUserCacheOnline(username string) {
 		}
 		u = fmt.Sprintf("https://localhost:%d/api/admin/user/del_cache", conf.Conf.Scheme.HttpsPort)
 	}
-	res, err := client.R().SetHeader("Authorization", token).SetQueryParam("username", username).Post(u)
+	res, err := client.R().SetHeader("X-Token", token).SetQueryParam("username", username).Post(u)
 	if err != nil {
 		utils.Log.Warnf("[del_user_cache_online] failed: %+v", err)
 		return

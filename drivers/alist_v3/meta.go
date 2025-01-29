@@ -8,6 +8,7 @@ import (
 type Addition struct {
 	driver.RootPath
 	Address         string `json:"url" required:"true"`
+	AuthHeader      string `json:"auth_header" type:"select" options:"Authorization,X-Token" default:"X-Token"`
 	MetaPassword    string `json:"meta_password"`
 	Username        string `json:"username"`
 	Password        string `json:"password"`

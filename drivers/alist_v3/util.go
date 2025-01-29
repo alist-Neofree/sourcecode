@@ -34,7 +34,7 @@ func (d *AListV3) login() error {
 func (d *AListV3) request(api, method string, callback base.ReqCallback, retry ...bool) ([]byte, error) {
 	url := d.Address + "/api" + api
 	req := base.RestyClient.R()
-	req.SetHeader("Authorization", d.Token)
+	req.SetHeader(d.Addition.AuthHeader, d.Token)
 	if callback != nil {
 		callback(req)
 	}

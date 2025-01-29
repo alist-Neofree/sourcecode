@@ -186,7 +186,7 @@ func (d *AListV3) Put(ctx context.Context, dstDir model.Obj, stream model.FileSt
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", d.Token)
+	req.Header.Set(d.Addition.AuthHeader, d.Token)
 	req.Header.Set("File-Path", path.Join(dstDir.GetPath(), stream.GetName()))
 	req.Header.Set("Password", d.MetaPassword)
 	if md5 := stream.GetHash().GetHash(utils.MD5); len(md5) > 0 {

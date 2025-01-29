@@ -7,6 +7,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 )
 
@@ -62,6 +63,13 @@ func ParseToken(tokenString string) (*UserClaims, error) {
 		return claims, nil
 	}
 	return nil, errors.New("couldn't handle this token")
+}
+
+func GetToken(c *gin.Context) string {
+    if token := c.GetHeader("X-Token"); token != "" {
+        return token
+    }
+    return c.GetHeader("Authorization")
 }
 
 func InvalidateToken(tokenString string) error {
