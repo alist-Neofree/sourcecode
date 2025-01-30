@@ -41,15 +41,18 @@ func ParseRepos(text string, allVersion bool) ([]Release, error) {
 			return nil, fmt.Errorf("invalid format: %s", line)
 		}
 
-		if allVersion {
+		if allVersion { // 显示所有版本
 			releases, _ := GetAllVersion(repo, path)
 			repos = append(repos, *releases...)
-		} else {
+		} else { // 显示最新版本
 			repos = append(repos, Release{
 				Path:     path,
 				RepoName: repo,
 				Version:  "latest",
 				ID:       "latest",
+				Size:     0,
+				CreateAt: time.Time{},
+				UpdateAt: time.Now(),
 			})
 		}
 
@@ -82,6 +85,7 @@ func GetRequest(url string, cacheExpiration int) (*resty.Response, error) {
 	}
 	mu.Unlock()
 
+	fmt.Println("发送GET请求", url)
 	res, err := req.Get(url)
 	if err != nil {
 		return nil, err
@@ -190,12 +194,27 @@ func GetAllVersion(repo string, path string) (*[]Release, error) {
 	releases := make([]Release, 0)
 	for i := 0; i < body.Size(); i++ {
 		version := body.Get(i, "tag_name").ToString()
-		releases = append(releases, Release{
+		release := Release{
 			Path:     fmt.Sprintf("%s/%s", path, version),
 			Version:  version,
 			RepoName: repo,
 			ID:       body.Get(i, "id").ToString(),
-		})
+			Size:     0,
+			CreateAt: time.Time{},
+			UpdateAt: time.Time{},
+		}
+		for j := 0; j < body.Get(i, "assets").Size(); j++ {
+			release.Size += body.Get(i, "assets", j, "size").ToInt64()
+			update_at, _ := time.Parse(time.RFC3339, body.Get(i, "assets", j, "updated_at").ToString())
+			create_at, _ := time.Parse(time.RFC3339, body.Get(i, "assets", j, "created_at").ToString())
+			if update_at.After(release.UpdateAt) {
+				release.UpdateAt = update_at
+			}
+			if create_at.After(release.CreateAt) {
+				release.CreateAt = create_at
+			}
+		}
+		releases = append(releases, release)
 	}
 	return &releases, nil
 }

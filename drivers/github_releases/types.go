@@ -61,8 +61,11 @@ type ReleasesData struct {
 }
 
 type Release struct {
-	Path     string // 挂载路径
-	RepoName string // 仓库名称
-	Version  string // 版本号, tag
-	ID       string // 版本ID
+	Path     string    // 挂载路径
+	RepoName string    // 仓库名称
+	Version  string    // 版本号, tag
+	ID       string    // 版本ID
+	Size     int64     // 文件大小
+	UpdateAt time.Time // 更新时间
+	CreateAt time.Time // 创建时间
 }

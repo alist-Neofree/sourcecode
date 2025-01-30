@@ -69,47 +69,64 @@ func (d *GithubReleases) List(ctx context.Context, dir model.Obj, args model.Lis
 			if nextDir == "" {
 				continue
 			}
-			if d.Addition.ShowAllVersion {
-				files = append(files, File{
-					FileName: nextDir,
-					Size:     0,
-					CreateAt: time.Time{},
-					UpdateAt: time.Time{},
-					Url:      "",
-					Type:     "dir",
-					Path:     fmt.Sprintf("%s/%s", path, nextDir),
-				})
-				continue
-			}
+			if d.Addition.ShowAllVersion { // 显示所有版本
+				hasSameDir := false
+				for index, file := range files {
+					if file.FileName == nextDir {
+						hasSameDir = true
+						files[index].Size += repo.Size
+						files[index].UpdateAt = func(a time.Time, b time.Time) time.Time {
+							if a.After(b) {
+								return a
+							}
+							return b
+						}(files[index].UpdateAt, repo.UpdateAt)
+						break
+					}
+				}
 
-			repo, _ := GetRepoReleaseInfo(repo.RepoName, repo.Version, path, d.Storage.CacheExpiration)
+				if !hasSameDir {
+					files = append(files, File{
+						FileName: nextDir,
+						Size:     repo.Size,
+						CreateAt: repo.CreateAt,
+						UpdateAt: repo.UpdateAt,
+						Url:      "",
+						Type:     "dir",
+						Path:     fmt.Sprintf("%s/%s", path, nextDir),
+					})
+				}
+			} else { // 显示最新版本
+				repo, _ := GetRepoReleaseInfo(repo.RepoName, repo.Version, path, d.Storage.CacheExpiration)
 
-			hasSameDir := false
-			for index, file := range files {
-				if file.FileName == nextDir {
-					hasSameDir = true
-					files[index].Size += repo.Size
-					files[index].UpdateAt = func(a time.Time, b time.Time) time.Time {
-						if a.After(b) {
-							return a
-						}
-						return b
-					}(files[index].UpdateAt, repo.UpdateAt)
-					break
+				hasSameDir := false
+				for index, file := range files {
+					if file.FileName == nextDir {
+						hasSameDir = true
+						files[index].Size += repo.Size
+						files[index].UpdateAt = func(a time.Time, b time.Time) time.Time {
+							if a.After(b) {
+								return a
+							}
+							return b
+						}(files[index].UpdateAt, repo.UpdateAt)
+						break
+					}
+				}
+
+				if !hasSameDir {
+					files = append(files, File{
+						FileName: nextDir,
+						Size:     repo.Size,
+						CreateAt: repo.CreateAt,
+						UpdateAt: repo.UpdateAt,
+						Url:      repo.Url,
+						Type:     "dir",
+						Path:     fmt.Sprintf("%s/%s", path, nextDir),
+					})
 				}
 			}
 
-			if !hasSameDir {
-				files = append(files, File{
-					FileName: nextDir,
-					Size:     repo.Size,
-					CreateAt: repo.CreateAt,
-					UpdateAt: repo.UpdateAt,
-					Url:      repo.Url,
-					Type:     "dir",
-					Path:     fmt.Sprintf("%s/%s", path, nextDir),
-				})
-			}
 		}
 	}
 
