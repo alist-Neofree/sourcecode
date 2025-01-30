@@ -75,6 +75,7 @@ func (d *Yun139) refreshToken() error {
 	if err != nil {
 		return fmt.Errorf("authorization is invalid")
 	}
+	d.Account = splits[1]
 	expiration -= time.Now().UnixMilli()
 	if expiration > 1000*60*60*24*15 {
 		// Authorization有效期大于15天无需刷新
