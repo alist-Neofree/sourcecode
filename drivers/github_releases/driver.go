@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"strings"
 
@@ -75,12 +74,9 @@ func (d *GithubReleases) List(ctx context.Context, dir model.Obj, args model.Lis
 					if file.FileName == nextDir {
 						hasSameDir = true
 						files[index].Size += repo.Size
-						files[index].UpdateAt = func(a time.Time, b time.Time) time.Time {
-							if a.After(b) {
-								return a
-							}
-							return b
-						}(files[index].UpdateAt, repo.UpdateAt)
+						if files[index].UpdateAt.Before(repo.UpdateAt) {
+							files[index].UpdateAt = repo.UpdateAt
+						}
 						break
 					}
 				}
@@ -104,12 +100,9 @@ func (d *GithubReleases) List(ctx context.Context, dir model.Obj, args model.Lis
 					if file.FileName == nextDir {
 						hasSameDir = true
 						files[index].Size += repo.Size
-						files[index].UpdateAt = func(a time.Time, b time.Time) time.Time {
-							if a.After(b) {
-								return a
-							}
-							return b
-						}(files[index].UpdateAt, repo.UpdateAt)
+						if files[index].UpdateAt.Before(repo.UpdateAt) {
+							files[index].UpdateAt = repo.UpdateAt
+						}
 						break
 					}
 				}
