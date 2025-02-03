@@ -115,6 +115,18 @@ const (
 	FTPImplicitTLS       = "ftp_implicit_tls"
 	FTPTLSPrivateKeyPath = "ftp_tls_private_key_path"
 	FTPTLSPublicCertPath = "ftp_tls_public_cert_path"
+
+	// traffic
+	TaskOfflineDownloadThreadsNum         = "offline_download_task_threads_num"
+	TaskOfflineDownloadTransferThreadsNum = "offline_download_transfer_task_threads_num"
+	TaskUploadThreadsNum                  = "upload_task_threads_num"
+	TaskCopyThreadsNum                    = "copy_task_threads_num"
+	TaskDecompressDownloadThreadsNum      = "decompress_download_task_threads_num"
+	TaskDecompressUploadThreadsNum        = "decompress_upload_task_threads_num"
+	StreamMaxClientDownloadSpeed          = "max_client_download_speed"
+	StreamMaxClientUploadSpeed            = "max_client_upload_speed"
+	StreamMaxServerDownloadSpeed          = "max_server_download_speed"
+	StreamMaxServerUploadSpeed            = "max_server_upload_speed"
 )
 
 const (

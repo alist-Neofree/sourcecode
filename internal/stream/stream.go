@@ -293,8 +293,9 @@ func (ss *SeekableStream) CacheFullInTempFileAndUpdateProgress(up model.UpdatePr
 }
 
 func (f *FileStream) SetTmpFile(r *os.File) {
-	f.Reader = r
+	f.Add(r)
 	f.tmpFile = r
+	f.Reader = r
 }
 
 type ReaderWithSize interface {
@@ -534,7 +535,7 @@ func (r *RangeReadReadAtSeeker) Read(p []byte) (n int, err error) {
 
 func (r *RangeReadReadAtSeeker) Close() error {
 	if r.headCache != nil {
-		r.headCache.close()
+		_ = r.headCache.close()
 	}
 	return r.ss.Close()
 }

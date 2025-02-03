@@ -76,3 +76,9 @@ func checkContentRange(header *http.Header, offset int64) bool {
 	}
 	return false
 }
+
+type NopCloserWriter struct {
+	io.Writer
+}
+
+func (NopCloserWriter) Close() error { return nil }
