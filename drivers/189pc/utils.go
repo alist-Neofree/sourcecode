@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/semaphore"
+
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/driver"
@@ -174,8 +176,14 @@ func (y *Cloud189PC) put(ctx context.Context, url string, headers map[string]str
 	}
 
 	var erron RespErr
-	jsoniter.Unmarshal(body, &erron)
-	xml.Unmarshal(body, &erron)
+	err = jsoniter.Unmarshal(body, &erron)
+	if err != nil {
+		return nil, err
+	}
+	err = xml.Unmarshal(body, &erron)
+	if err != nil {
+		return nil, err
+	}
 	if erron.HasError() {
 		return nil, &erron
 	}
@@ -481,6 +489,7 @@ func (y *Cloud189PC) StreamUpload(ctx context.Context, dstDir model.Obj, file mo
 		retry.Attempts(3),
 		retry.Delay(time.Second),
 		retry.DelayType(retry.BackOffDelay))
+	sem := semaphore.NewWeighted(3)
 
 	fileMd5 := md5.New()
 	silceMd5 := md5.New()
@@ -490,7 +499,9 @@ func (y *Cloud189PC) StreamUpload(ctx context.Context, dstDir model.Obj, file mo
 		if utils.IsCanceled(upCtx) {
 			break
 		}
-
+		if err = sem.Acquire(ctx, 1); err != nil {
+			break
+		}
 		byteData := make([]byte, sliceSize)
 		if i == count {
 			byteData = byteData[:lastPartSize]
@@ -499,6 +510,7 @@ func (y *Cloud189PC) StreamUpload(ctx context.Context, dstDir model.Obj, file mo
 		// 读取块
 		silceMd5.Reset()
 		if _, err := io.ReadFull(io.TeeReader(file, io.MultiWriter(fileMd5, silceMd5)), byteData); err != io.EOF && err != nil {
+			sem.Release(1)
 			return nil, err
 		}
 
@@ -508,6 +520,7 @@ func (y *Cloud189PC) StreamUpload(ctx context.Context, dstDir model.Obj, file mo
 		partInfo := fmt.Sprintf("%d-%s", i, base64.StdEncoding.EncodeToString(md5Bytes))
 
 		threadG.Go(func(ctx context.Context) error {
+			defer sem.Release(1)
 			uploadUrls, err := y.GetMultiUploadUrls(ctx, isFamily, initMultiUpload.Data.UploadFileID, partInfo)
 			if err != nil {
 				return err
@@ -515,7 +528,8 @@ func (y *Cloud189PC) StreamUpload(ctx context.Context, dstDir model.Obj, file mo
 
 			// step.4 上传切片
 			uploadUrl := uploadUrls[0]
-			_, err = y.put(ctx, uploadUrl.RequestURL, uploadUrl.Headers, false, bytes.NewReader(byteData), isFamily)
+			_, err = y.put(ctx, uploadUrl.RequestURL, uploadUrl.Headers, false,
+				driver.NewLimitedUploadStream(ctx, bytes.NewReader(byteData)), isFamily)
 			if err != nil {
 				return err
 			}
@@ -767,6 +781,7 @@ func (y *Cloud189PC) OldUpload(ctx context.Context, dstDir model.Obj, file model
 	if err != nil {
 		return nil, err
 	}
+	rateLimited := driver.NewLimitedUploadStream(ctx, io.NopCloser(tempFile))
 
 	// 创建上传会话
 	uploadInfo, err := y.OldUploadCreate(ctx, dstDir.GetID(), fileMd5, file.GetName(), fmt.Sprint(file.GetSize()), isFamily)
@@ -793,7 +808,7 @@ func (y *Cloud189PC) OldUpload(ctx context.Context, dstDir model.Obj, file model
 			header["Edrive-UploadFileId"] = fmt.Sprint(status.UploadFileId)
 		}
 
-		_, err := y.put(ctx, status.FileUploadUrl, header, true, io.NopCloser(tempFile), isFamily)
+		_, err := y.put(ctx, status.FileUploadUrl, header, true, rateLimited, isFamily)
 		if err, ok := err.(*RespErr); ok && err.Code != "InputStreamReadError" {
 			return nil, err
 		}

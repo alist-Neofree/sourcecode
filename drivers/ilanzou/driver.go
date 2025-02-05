@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
-	"github.com/alist-org/alist/v3/internal/stream"
 	"io"
 	"net/http"
 	"net/url"
@@ -302,13 +301,13 @@ func (d *ILanZou) Put(ctx context.Context, dstDir model.Obj, s model.FileStreame
 	upToken := utils.Json.Get(res, "upToken").ToString()
 	now := time.Now()
 	key := fmt.Sprintf("disk/%d/%d/%d/%s/%016d", now.Year(), now.Month(), now.Day(), d.account, now.UnixMilli())
-	reader := &stream.ReaderUpdatingProgress{
-		Reader: &stream.SimpleReaderWithSize{
+	reader := driver.NewLimitedUploadStream(ctx, &driver.ReaderUpdatingProgress{
+		Reader: &driver.SimpleReaderWithSize{
 			Reader: tempFile,
 			Size:   s.GetSize(),
 		},
 		UpdateProgress: up,
-	}
+	})
 	var token string
 	if s.GetSize() <= DefaultPartSize {
 		res, err := d.upClient.R().SetContext(ctx).SetMultipartFormData(map[string]string{

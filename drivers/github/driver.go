@@ -16,7 +16,6 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
-	"github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
@@ -668,13 +667,13 @@ func (d *Github) putBlob(ctx context.Context, s model.FileStreamer, up driver.Up
 	afterContentReader := strings.NewReader(afterContent)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		fmt.Sprintf("https://api.github.com/repos/%s/%s/git/blobs", d.Owner, d.Repo),
-		&stream.ReaderUpdatingProgress{
-			Reader: &stream.SimpleReaderWithSize{
+		driver.NewLimitedUploadStream(ctx, &driver.ReaderUpdatingProgress{
+			Reader: &driver.SimpleReaderWithSize{
 				Reader: io.MultiReader(beforeContentReader, contentReader, afterContentReader),
 				Size:   length,
 			},
 			UpdateProgress: up,
-		})
+		}))
 	if err != nil {
 		return "", err
 	}
@@ -687,6 +686,7 @@ func (d *Github) putBlob(ctx context.Context, s model.FileStreamer, up driver.Up
 	if err != nil {
 		return "", err
 	}
+	defer res.Body.Close()
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
 		return "", err
