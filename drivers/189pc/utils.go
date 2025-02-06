@@ -176,14 +176,8 @@ func (y *Cloud189PC) put(ctx context.Context, url string, headers map[string]str
 	}
 
 	var erron RespErr
-	err = jsoniter.Unmarshal(body, &erron)
-	if err != nil {
-		return nil, err
-	}
-	err = xml.Unmarshal(body, &erron)
-	if err != nil {
-		return nil, err
-	}
+	_ = jsoniter.Unmarshal(body, &erron)
+	_ = xml.Unmarshal(body, &erron)
 	if erron.HasError() {
 		return nil, &erron
 	}
