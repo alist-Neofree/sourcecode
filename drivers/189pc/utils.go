@@ -1087,6 +1087,34 @@ func (y *Cloud189PC) SaveFamilyFileToPersonCloud(ctx context.Context, familyId s
 	}
 }
 
+// 永久删除文件
+func (y *Cloud189PC) Delete(ctx context.Context, familyId string, srcObj model.Obj) error {
+	task := BatchTaskInfo{
+		FileId:   srcObj.GetID(),
+		FileName: srcObj.GetName(),
+		IsFolder: BoolToNumber(srcObj.IsDir()),
+	}
+	// 删除源文件
+	resp, err := y.CreateBatchTask("DELETE", familyId, "", nil, task)
+	if err != nil {
+		return err
+	}
+	err = y.WaitBatchTask("DELETE", resp.TaskID, time.Second)
+	if err != nil {
+		return err
+	}
+	// 清除回收站
+	resp, err = y.CreateBatchTask("CLEAR_RECYCLE", familyId, "", nil, task)
+	if err != nil {
+		return err
+	}
+	err = y.WaitBatchTask("CLEAR_RECYCLE", resp.TaskID, time.Second)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (y *Cloud189PC) CreateBatchTask(aType string, familyID string, targetFolderId string, other map[string]string, taskInfos ...BatchTaskInfo) (*CreateBatchTaskResp, error) {
 	var resp CreateBatchTaskResp
 	_, err := y.post(API_URL+"/batch/createBatchTask.action", func(req *resty.Request) {

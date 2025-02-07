@@ -49,9 +49,18 @@ func (y *Cloud189PC) GetAddition() driver.Additional {
 }
 
 func (y *Cloud189PC) Init(ctx context.Context) (err error) {
-	// 兼容旧上传接口
-	y.storageConfig.NoOverwriteUpload = y.isFamily() && (y.Addition.RapidUpload || y.Addition.UploadMethod == "old")
-
+	y.storageConfig = config
+	if y.isFamily() {
+		// 兼容旧上传接口
+		if y.Addition.RapidUpload || y.Addition.UploadMethod == "old" {
+			y.storageConfig.NoOverwriteUpload = true
+		}
+	} else {
+		// 家庭云转存，不支持覆盖上传
+		if y.Addition.FamilyTransfer {
+			y.storageConfig.NoOverwriteUpload = true
+		}
+	}
 	// 处理个人云和家庭云参数
 	if y.isFamily() && y.RootFolderID == "-11" {
 		y.RootFolderID = ""
@@ -335,7 +344,7 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		srcName := stream.GetName()
 		stream = &WrapFileStreamer{
 			FileStreamer: stream,
-			Name:         uuid.NewString(),
+			Name:         fmt.Sprintf("%s.transfer", uuid.NewString()),
 		}
 
 		// 使用家庭云上传
@@ -350,21 +359,7 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 				// 转存家庭云文件到个人云
 				err = y.SaveFamilyFileToPersonCloud(context.TODO(), y.FamilyID, newObj, transferDstDir, true)
 				// 删除家庭云源文件
-				go func(task BatchTaskInfo) {
-					// 移动到回收站
-					if resp, err := y.CreateBatchTask("DELETE", y.FamilyID, "", nil, task); err == nil {
-						y.WaitBatchTask("DELETE", resp.TaskID, time.Second)
-						// 永久删除
-						if resp, err := y.CreateBatchTask("CLEAR_RECYCLE", y.FamilyID, "", nil, task); err == nil {
-							y.WaitBatchTask("CLEAR_RECYCLE", resp.TaskID, time.Second)
-						}
-					}
-				}(BatchTaskInfo{
-					FileId:   newObj.GetID(),
-					FileName: newObj.GetName(),
-					IsFolder: BoolToNumber(newObj.IsDir()),
-				})
-
+				go y.Delete(context.TODO(), y.FamilyID, newObj)
 				// 转存失败返回错误
 				if err != nil {
 					return
@@ -382,8 +377,12 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 				}
 
 				// 重命名转存文件
-				newObj = &resp.FileListAO.FileList[0]
-				newObj, err = y.Rename(context.TODO(), newObj, srcName)
+				srcObj := &resp.FileListAO.FileList[0]
+				newObj, err = y.Rename(context.TODO(), srcObj, srcName)
+				if err != nil {
+					// 重命名失败删除源文件
+					_ = y.Delete(context.TODO(), "", srcObj)
+				}
 				return
 			}
 		}()
