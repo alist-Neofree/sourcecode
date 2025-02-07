@@ -127,8 +127,15 @@ func (d *GithubReleases) List(ctx context.Context, dir model.Obj, args model.Lis
 }
 
 func (d *GithubReleases) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
+	url := file.GetID()
+	gh_proxy := strings.TrimSpace(d.Addition.GitHubProxy)
+
+	if gh_proxy != "" {
+		url = strings.Replace(url, "https://github.com", gh_proxy, 1)
+	}
+
 	link := model.Link{
-		URL:    file.GetID(),
+		URL:    url,
 		Header: http.Header{},
 	}
 	return &link, nil
