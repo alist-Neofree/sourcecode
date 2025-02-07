@@ -2,7 +2,6 @@ package _189pc
 
 import (
 	"bytes"
-	"container/ring"
 	"context"
 	"crypto/md5"
 	"encoding/base64"
@@ -185,39 +184,9 @@ func (y *Cloud189PC) put(ctx context.Context, url string, headers map[string]str
 	return body, nil
 }
 func (y *Cloud189PC) getFiles(ctx context.Context, fileId string, isFamily bool) ([]model.Obj, error) {
-	fullUrl := API_URL
-	if isFamily {
-		fullUrl += "/family/file"
-	}
-	fullUrl += "/listFiles.action"
-
 	res := make([]model.Obj, 0, 130)
 	for pageNum := 1; ; pageNum++ {
-		var resp Cloud189FilesResp
-		_, err := y.get(fullUrl, func(r *resty.Request) {
-			r.SetContext(ctx)
-			r.SetQueryParams(map[string]string{
-				"folderId":   fileId,
-				"fileType":   "0",
-				"mediaAttr":  "0",
-				"iconOption": "5",
-				"pageNum":    fmt.Sprint(pageNum),
-				"pageSize":   "130",
-			})
-			if isFamily {
-				r.SetQueryParams(map[string]string{
-					"familyId":   y.FamilyID,
-					"orderBy":    toFamilyOrderBy(y.OrderBy),
-					"descending": toDesc(y.OrderDirection),
-				})
-			} else {
-				r.SetQueryParams(map[string]string{
-					"recursive":  "0",
-					"orderBy":    y.OrderBy,
-					"descending": toDesc(y.OrderDirection),
-				})
-			}
-		}, &resp, isFamily)
+		resp, err := y.getFilesWithPage(ctx, fileId, isFamily, pageNum, 130)
 		if err != nil {
 			return nil, err
 		}
@@ -234,6 +203,82 @@ func (y *Cloud189PC) getFiles(ctx context.Context, fileId string, isFamily bool)
 		}
 	}
 	return res, nil
+}
+
+func (y *Cloud189PC) getFilesWithPage(ctx context.Context, fileId string, isFamily bool, pageNum int, pageSize int) (*Cloud189FilesResp, error) {
+	fullUrl := API_URL
+	if isFamily {
+		fullUrl += "/family/file"
+	}
+	fullUrl += "/listFiles.action"
+
+	var resp Cloud189FilesResp
+	_, err := y.get(fullUrl, func(r *resty.Request) {
+		r.SetContext(ctx)
+		r.SetQueryParams(map[string]string{
+			"folderId":   fileId,
+			"fileType":   "0",
+			"mediaAttr":  "0",
+			"iconOption": "5",
+			"pageNum":    fmt.Sprint(pageNum),
+			"pageSize":   fmt.Sprint(pageSize),
+		})
+		if isFamily {
+			r.SetQueryParams(map[string]string{
+				"familyId":   y.FamilyID,
+				"orderBy":    toFamilyOrderBy(y.OrderBy),
+				"descending": toDesc(y.OrderDirection),
+			})
+		} else {
+			r.SetQueryParams(map[string]string{
+				"recursive":  "0",
+				"orderBy":    y.OrderBy,
+				"descending": toDesc(y.OrderDirection),
+			})
+		}
+	}, &resp, isFamily)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (y *Cloud189PC) searchFilesWithPage(ctx context.Context, searchName string, folderId string, isFamily bool, pageNum int, pageSize int) (*Cloud189FilesResp, error) {
+	fullUrl := API_URL
+	if isFamily {
+		fullUrl = API_URL + "/family/file"
+	}
+	fullUrl += "/searchFiles.action"
+	var resp Cloud189FilesResp
+	_, err := y.get(fullUrl, func(r *resty.Request) {
+		r.SetContext(ctx)
+		r.SetQueryParams(map[string]string{
+			"folderId":   folderId,
+			"fileType":   "0",
+			"fileName":   searchName,
+			"mediaAttr":  "0",
+			"iconOption": "5",
+			"recursive":  "0",
+			"pageNum":    fmt.Sprint(pageNum),
+			"pageSize":   fmt.Sprint(pageSize),
+		})
+		if isFamily {
+			r.SetQueryParams(map[string]string{
+				"familyId":   y.FamilyID,
+				"orderBy":    toFamilyOrderBy(y.OrderBy),
+				"descending": toDesc(y.OrderDirection),
+			})
+		} else {
+			r.SetQueryParams(map[string]string{
+				"orderBy":    y.OrderBy,
+				"descending": toDesc(y.OrderDirection),
+			})
+		}
+	}, &resp.FileListAO, isFamily)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 func (y *Cloud189PC) login() (err error) {
@@ -902,8 +947,7 @@ func (y *Cloud189PC) isLogin() bool {
 }
 
 // 创建家庭云中转文件夹
-func (y *Cloud189PC) createFamilyTransferFolder(count int) (*ring.Ring, error) {
-	folders := ring.New(count)
+func (y *Cloud189PC) createFamilyTransferFolder() error {
 	var rootFolder Cloud189Folder
 	_, err := y.post(API_URL+"/family/file/createFolder.action", func(req *resty.Request) {
 		req.SetQueryParams(map[string]string{
@@ -912,81 +956,61 @@ func (y *Cloud189PC) createFamilyTransferFolder(count int) (*ring.Ring, error) {
 		})
 	}, &rootFolder, true)
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	folderCount := 0
-
-	// 获取已有目录
-	files, err := y.getFiles(context.TODO(), rootFolder.GetID(), true)
-	if err != nil {
-		return nil, err
-	}
-	for _, file := range files {
-		if folder, ok := file.(*Cloud189Folder); ok {
-			folders.Value = folder
-			folders = folders.Next()
-			folderCount++
-		}
-	}
-
-	// 创建新的目录
-	for folderCount < count {
-		var newFolder Cloud189Folder
-		_, err := y.post(API_URL+"/family/file/createFolder.action", func(req *resty.Request) {
-			req.SetQueryParams(map[string]string{
-				"folderName": uuid.NewString(),
-				"familyId":   y.FamilyID,
-				"parentId":   rootFolder.GetID(),
-			})
-		}, &newFolder, true)
-		if err != nil {
-			return nil, err
-		}
-		folders.Value = &newFolder
-		folders = folders.Next()
-		folderCount++
-	}
-	return folders, nil
+	y.familyTransferFolder = &rootFolder
+	return nil
 }
 
 // 清理中转文件夹
 func (y *Cloud189PC) cleanFamilyTransfer(ctx context.Context) error {
-	var tasks []BatchTaskInfo
-	r := y.familyTransferFolder
-	for p := r.Next(); p != r; p = p.Next() {
-		folder := p.Value.(*Cloud189Folder)
-
-		files, err := y.getFiles(ctx, folder.GetID(), true)
+	transferFolderId := y.familyTransferFolder.GetID()
+	for pageNum := 1; ; pageNum++ {
+		resp, err := y.getFilesWithPage(ctx, transferFolderId, true, pageNum, 100)
 		if err != nil {
 			return err
 		}
-		for _, file := range files {
+		// 获取完毕跳出
+		if resp.FileListAO.Count == 0 {
+			break
+		}
+
+		var tasks []BatchTaskInfo
+		for i := 0; i < len(resp.FileListAO.FolderList); i++ {
+			folder := resp.FileListAO.FolderList[i]
+			tasks = append(tasks, BatchTaskInfo{
+				FileId:   folder.GetID(),
+				FileName: folder.GetName(),
+				IsFolder: BoolToNumber(folder.IsDir()),
+			})
+		}
+		for i := 0; i < len(resp.FileListAO.FileList); i++ {
+			file := resp.FileListAO.FileList[i]
 			tasks = append(tasks, BatchTaskInfo{
 				FileId:   file.GetID(),
 				FileName: file.GetName(),
 				IsFolder: BoolToNumber(file.IsDir()),
 			})
 		}
-	}
 
-	if len(tasks) > 0 {
-		// 删除
-		resp, err := y.CreateBatchTask("DELETE", y.FamilyID, "", nil, tasks...)
-		if err != nil {
+		if len(tasks) > 0 {
+			// 删除
+			resp, err := y.CreateBatchTask("DELETE", y.FamilyID, "", nil, tasks...)
+			if err != nil {
+				return err
+			}
+			err = y.WaitBatchTask("DELETE", resp.TaskID, time.Second)
+			if err != nil {
+				return err
+			}
+			// 永久删除
+			resp, err = y.CreateBatchTask("CLEAR_RECYCLE", y.FamilyID, "", nil, tasks...)
+			if err != nil {
+				return err
+			}
+			err = y.WaitBatchTask("CLEAR_RECYCLE", resp.TaskID, time.Second)
 			return err
 		}
-		err = y.WaitBatchTask("DELETE", resp.TaskID, time.Second)
-		if err != nil {
-			return err
-		}
-		// 永久删除
-		resp, err = y.CreateBatchTask("CLEAR_RECYCLE", y.FamilyID, "", nil, tasks...)
-		if err != nil {
-			return err
-		}
-		err = y.WaitBatchTask("CLEAR_RECYCLE", resp.TaskID, time.Second)
-		return err
 	}
 	return nil
 }
