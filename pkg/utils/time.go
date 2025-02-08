@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
@@ -13,51 +13,57 @@ func MustParseCNTime(str string) time.Time {
 }
 
 func NewDebounce(interval time.Duration) func(f func()) {
-	var timer atomic.Value
+	var timer *time.Timer
+	var lock sync.Mutex
 	return func(f func()) {
-		timer_ := timer.Load().(*time.Timer)
-		if timer_ != nil {
-			timer_.Stop()
+		lock.Lock()
+		defer lock.Unlock()
+		if timer != nil {
+			timer.Stop()
 		}
-		timer_ = time.AfterFunc(interval, f)
-		timer.Store(timer_)
+		timer = time.AfterFunc(interval, f)
 	}
 }
 
 func NewDebounce2(interval time.Duration, f func()) func() {
-	var timer atomic.Value
+	var timer *time.Timer
+	var lock sync.Mutex
 	return func() {
-		timer_ := timer.Load().(*time.Timer)
-		if timer_ == nil {
-			timer_ = time.AfterFunc(interval, f)
-			timer.Store(timer_)
+		lock.Lock()
+		defer lock.Unlock()
+		if timer == nil {
+			timer = time.AfterFunc(interval, f)
 		}
-		timer_.Reset(interval)
+		timer.Reset(interval)
 	}
 }
 
 func NewThrottle(interval time.Duration) func(func()) {
-	var lastCall atomic.Value
-	lastCall.Store(time.Now())
+	var lastCall time.Time
+	var lock sync.Mutex
 	return func(fn func()) {
+		lock.Lock()
+		defer lock.Unlock()
+
 		now := time.Now()
-		if now.Sub(lastCall.Load().(time.Time)) < interval {
-			return
+		if now.Sub(lastCall) >= interval {
+			lastCall = now
+			go fn()
 		}
-		lastCall.Store(now)
-		time.AfterFunc(interval, fn)
 	}
 }
 
 func NewThrottle2(interval time.Duration, fn func()) func() {
-	var lastCall atomic.Value
-	lastCall.Store(time.Now())
+	var lastCall time.Time
+	var lock sync.Mutex
 	return func() {
+		lock.Lock()
+		defer lock.Unlock()
+
 		now := time.Now()
-		if now.Sub(lastCall.Load().(time.Time)) < interval {
-			return
+		if now.Sub(lastCall) >= interval {
+			lastCall = now
+			go fn()
 		}
-		lastCall.Store(now)
-		time.AfterFunc(interval, fn)
 	}
 }
