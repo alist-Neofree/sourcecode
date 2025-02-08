@@ -353,13 +353,12 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 
 		defer func() {
 			if newObj != nil {
-				// 批量任务有概率删不掉
-				go y.cleanFamilyTransferFile()
-
 				// 转存家庭云文件到个人云
 				err = y.SaveFamilyFileToPersonCloud(context.TODO(), y.FamilyID, newObj, transferDstDir, true)
 				// 删除家庭云源文件
 				go y.Delete(context.TODO(), y.FamilyID, newObj)
+				// 批量任务有概率删不掉
+				go y.cleanFamilyTransferFile()
 				// 转存失败返回错误
 				if err != nil {
 					return
