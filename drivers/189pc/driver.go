@@ -344,7 +344,7 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		srcName := stream.GetName()
 		stream = &WrapFileStreamer{
 			FileStreamer: stream,
-			Name:         fmt.Sprintf("%s.transfer", uuid.NewString()),
+			Name:         fmt.Sprintf("0%s.transfer", uuid.NewString()),
 		}
 
 		// 使用家庭云上传
@@ -366,22 +366,20 @@ func (y *Cloud189PC) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 				}
 
 				// 查找转存文件
-				var resp *Cloud189FilesResp
-				resp, err = y.searchFilesWithPage(context.TODO(), newObj.GetName(), transferDstDir.GetID(), false, 1, 1)
+				var file *Cloud189File
+				file, err = y.findFileByName(context.TODO(), newObj.GetName(), transferDstDir.GetID(), false)
 				if err != nil {
-					return
-				}
-				if len(resp.FileListAO.FileList) == 0 {
-					err = fmt.Errorf("unknown error: No transfer file obtained %s", newObj.GetName())
+					if err == errs.ObjectNotFound {
+						err = fmt.Errorf("unknown error: No transfer file obtained %s", newObj.GetName())
+					}
 					return
 				}
 
 				// 重命名转存文件
-				srcObj := &resp.FileListAO.FileList[0]
-				newObj, err = y.Rename(context.TODO(), srcObj, srcName)
+				newObj, err = y.Rename(context.TODO(), file, srcName)
 				if err != nil {
 					// 重命名失败删除源文件
-					_ = y.Delete(context.TODO(), "", srcObj)
+					_ = y.Delete(context.TODO(), "", file)
 				}
 				return
 			}

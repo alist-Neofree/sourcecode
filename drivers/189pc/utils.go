@@ -22,6 +22,7 @@ import (
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/driver"
+	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/op"
 	"github.com/alist-org/alist/v3/internal/setting"
@@ -184,9 +185,9 @@ func (y *Cloud189PC) put(ctx context.Context, url string, headers map[string]str
 	return body, nil
 }
 func (y *Cloud189PC) getFiles(ctx context.Context, fileId string, isFamily bool) ([]model.Obj, error) {
-	res := make([]model.Obj, 0, 130)
+	res := make([]model.Obj, 0, 100)
 	for pageNum := 1; ; pageNum++ {
-		resp, err := y.getFilesWithPage(ctx, fileId, isFamily, pageNum, 130)
+		resp, err := y.getFilesWithPage(ctx, fileId, isFamily, pageNum, 1000, y.OrderBy, y.OrderDirection)
 		if err != nil {
 			return nil, err
 		}
@@ -205,7 +206,7 @@ func (y *Cloud189PC) getFiles(ctx context.Context, fileId string, isFamily bool)
 	return res, nil
 }
 
-func (y *Cloud189PC) getFilesWithPage(ctx context.Context, fileId string, isFamily bool, pageNum int, pageSize int) (*Cloud189FilesResp, error) {
+func (y *Cloud189PC) getFilesWithPage(ctx context.Context, fileId string, isFamily bool, pageNum int, pageSize int, orderBy string, orderDirection string) (*Cloud189FilesResp, error) {
 	fullUrl := API_URL
 	if isFamily {
 		fullUrl += "/family/file"
@@ -226,14 +227,14 @@ func (y *Cloud189PC) getFilesWithPage(ctx context.Context, fileId string, isFami
 		if isFamily {
 			r.SetQueryParams(map[string]string{
 				"familyId":   y.FamilyID,
-				"orderBy":    toFamilyOrderBy(y.OrderBy),
-				"descending": toDesc(y.OrderDirection),
+				"orderBy":    toFamilyOrderBy(orderBy),
+				"descending": toDesc(orderDirection),
 			})
 		} else {
 			r.SetQueryParams(map[string]string{
 				"recursive":  "0",
-				"orderBy":    y.OrderBy,
-				"descending": toDesc(y.OrderDirection),
+				"orderBy":    orderBy,
+				"descending": toDesc(orderDirection),
 			})
 		}
 	}, &resp, isFamily)
@@ -243,42 +244,23 @@ func (y *Cloud189PC) getFilesWithPage(ctx context.Context, fileId string, isFami
 	return &resp, nil
 }
 
-func (y *Cloud189PC) searchFilesWithPage(ctx context.Context, searchName string, folderId string, isFamily bool, pageNum int, pageSize int) (*Cloud189FilesResp, error) {
-	fullUrl := API_URL
-	if isFamily {
-		fullUrl = API_URL + "/family/file"
-	}
-	fullUrl += "/searchFiles.action"
-	var resp Cloud189FilesResp
-	_, err := y.get(fullUrl, func(r *resty.Request) {
-		r.SetContext(ctx)
-		r.SetQueryParams(map[string]string{
-			"folderId":   folderId,
-			"fileType":   "0",
-			"fileName":   searchName,
-			"mediaAttr":  "0",
-			"iconOption": "5",
-			"recursive":  "0",
-			"pageNum":    fmt.Sprint(pageNum),
-			"pageSize":   fmt.Sprint(pageSize),
-		})
-		if isFamily {
-			r.SetQueryParams(map[string]string{
-				"familyId":   y.FamilyID,
-				"orderBy":    toFamilyOrderBy(y.OrderBy),
-				"descending": toDesc(y.OrderDirection),
-			})
-		} else {
-			r.SetQueryParams(map[string]string{
-				"orderBy":    y.OrderBy,
-				"descending": toDesc(y.OrderDirection),
-			})
+func (y *Cloud189PC) findFileByName(ctx context.Context, searchName string, folderId string, isFamily bool) (*Cloud189File, error) {
+	for pageNum := 1; ; pageNum++ {
+		resp, err := y.getFilesWithPage(ctx, folderId, isFamily, pageNum, 10, "filename", "asc")
+		if err != nil {
+			return nil, err
 		}
-	}, &resp.FileListAO, isFamily)
-	if err != nil {
-		return nil, err
+		// 获取完毕跳出
+		if resp.FileListAO.Count == 0 {
+			return nil, errs.ObjectNotFound
+		}
+		for i := 0; i < len(resp.FileListAO.FileList); i++ {
+			file := resp.FileListAO.FileList[i]
+			if file.Name == searchName {
+				return &file, nil
+			}
+		}
 	}
-	return &resp, nil
 }
 
 func (y *Cloud189PC) login() (err error) {
@@ -966,7 +948,7 @@ func (y *Cloud189PC) createFamilyTransferFolder() error {
 func (y *Cloud189PC) cleanFamilyTransfer(ctx context.Context) error {
 	transferFolderId := y.familyTransferFolder.GetID()
 	for pageNum := 1; ; pageNum++ {
-		resp, err := y.getFilesWithPage(ctx, transferFolderId, true, pageNum, 100)
+		resp, err := y.getFilesWithPage(ctx, transferFolderId, true, pageNum, 100, "lastOpTime", "asc")
 		if err != nil {
 			return err
 		}
