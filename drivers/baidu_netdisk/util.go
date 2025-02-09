@@ -233,7 +233,7 @@ const (
 	VipSliceSize     int64 = 16 * utils.MB
 	SVipSliceSize    int64 = 32 * utils.MB
 
-	MaxSliceNum       = 2000 // 文档写的是 1024/没写 ，但实际测试是 2000
+	MaxSliceNum       = 2048 // 文档写的是 1024/没写 ，但实际测试是 2048
 	SliceStep   int64 = 1 * utils.MB
 )
 
