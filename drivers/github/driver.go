@@ -85,10 +85,13 @@ func (d *Github) Init(ctx context.Context) error {
 	}
 	d.client = base.NewRestyClient().
 		SetHeader("Accept", "application/vnd.github.object+json").
-		SetHeader("Authorization", "Bearer "+d.Token).
 		SetHeader("X-GitHub-Api-Version", "2022-11-28").
 		SetLogger(log.StandardLogger()).
 		SetDebug(false)
+	token := strings.TrimSpace(d.Token)
+	if token != "" {
+		d.client = d.client.SetHeader("Authorization", "Bearer "+token)
+	}
 	if d.Ref == "" {
 		repo, err := d.getRepo()
 		if err != nil {
@@ -149,8 +152,13 @@ func (d *Github) Link(ctx context.Context, file model.Obj, args model.LinkArgs) 
 	if obj.Type == "submodule" {
 		return nil, errors.New("cannot download a submodule")
 	}
+	url := obj.DownloadURL
+	ghProxy := strings.TrimSpace(d.Addition.GitHubProxy)
+	if ghProxy != "" {
+		url = strings.Replace(url, "https://raw.githubusercontent.com", ghProxy, 1)
+	}
 	return &model.Link{
-		URL: obj.DownloadURL,
+		URL: url,
 	}, nil
 }
 
@@ -679,8 +687,11 @@ func (d *Github) putBlob(ctx context.Context, s model.FileStreamer, up driver.Up
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("Authorization", "Bearer "+d.Token)
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	token := strings.TrimSpace(d.Token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.ContentLength = length
 
 	res, err := base.HttpClient.Do(req)
