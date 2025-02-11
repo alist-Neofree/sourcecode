@@ -151,11 +151,17 @@ func (d *ILanZou) Link(ctx context.Context, file model.Obj, args model.LinkArgs)
 	u.RawQuery = strings.Join(params, "&")
 	realURL := u.String()
 	// get the url after redirect
-	res, err := base.NoRedirectClient.R().SetHeaders(map[string]string{
-		//"Origin":  d.conf.site,
+	req := base.NoRedirectClient.R()
+
+	req.SetHeaders(map[string]string{
 		"Referer":    d.conf.site + "/",
 		"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
-	}).Get(realURL)
+	})
+	if d.Addition.Ip != "" {
+		req.SetHeader("X-Forwarded-For", d.Addition.Ip)
+	}
+
+	res, err := req.Get(realURL)
 	if err != nil {
 		return nil, err
 	}
