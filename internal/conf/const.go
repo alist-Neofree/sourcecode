@@ -22,14 +22,15 @@ const (
 	MainColor = "main_color"
 
 	// preview
-	TextTypes          = "text_types"
-	AudioTypes         = "audio_types"
-	VideoTypes         = "video_types"
-	ImageTypes         = "image_types"
-	ProxyTypes         = "proxy_types"
-	ProxyIgnoreHeaders = "proxy_ignore_headers"
-	AudioAutoplay      = "audio_autoplay"
-	VideoAutoplay      = "video_autoplay"
+	TextTypes                = "text_types"
+	AudioTypes               = "audio_types"
+	VideoTypes               = "video_types"
+	ImageTypes               = "image_types"
+	ProxyTypes               = "proxy_types"
+	ProxyIgnoreHeaders       = "proxy_ignore_headers"
+	AudioAutoplay            = "audio_autoplay"
+	VideoAutoplay            = "video_autoplay"
+	PreviewArchivesByDefault = "preview_archives_by_default"
 
 	// global
 	HideFiles               = "hide_files"
