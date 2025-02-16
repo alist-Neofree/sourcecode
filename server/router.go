@@ -5,6 +5,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/message"
 	"github.com/alist-org/alist/v3/internal/sign"
+	"github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/alist-org/alist/v3/server/handles"
@@ -39,15 +40,16 @@ func Init(e *gin.Engine) {
 	WebDav(g.Group("/dav"))
 	S3(g.Group("/s3"))
 
+	downloadLimiter := middlewares.DownloadRateLimiter(stream.ClientDownloadLimit)
 	signCheck := middlewares.Down(sign.Verify)
-	g.GET("/d/*path", signCheck, handles.Down)
-	g.GET("/p/*path", signCheck, handles.Proxy)
+	g.GET("/d/*path", signCheck, downloadLimiter, handles.Down)
+	g.GET("/p/*path", signCheck, downloadLimiter, handles.Proxy)
 	g.HEAD("/d/*path", signCheck, handles.Down)
 	g.HEAD("/p/*path", signCheck, handles.Proxy)
 	archiveSignCheck := middlewares.Down(sign.VerifyArchive)
-	g.GET("/ad/*path", archiveSignCheck, handles.ArchiveDown)
-	g.GET("/ap/*path", archiveSignCheck, handles.ArchiveProxy)
-	g.GET("/ae/*path", archiveSignCheck, handles.ArchiveInternalExtract)
+	g.GET("/ad/*path", archiveSignCheck, downloadLimiter, handles.ArchiveDown)
+	g.GET("/ap/*path", archiveSignCheck, downloadLimiter, handles.ArchiveProxy)
+	g.GET("/ae/*path", archiveSignCheck, downloadLimiter, handles.ArchiveInternalExtract)
 	g.HEAD("/ad/*path", archiveSignCheck, handles.ArchiveDown)
 	g.HEAD("/ap/*path", archiveSignCheck, handles.ArchiveProxy)
 	g.HEAD("/ae/*path", archiveSignCheck, handles.ArchiveInternalExtract)
@@ -176,8 +178,9 @@ func _fs(g *gin.RouterGroup) {
 	g.POST("/copy", handles.FsCopy)
 	g.POST("/remove", handles.FsRemove)
 	g.POST("/remove_empty_directory", handles.FsRemoveEmptyDirectory)
-	g.PUT("/put", middlewares.FsUp, handles.FsStream)
-	g.PUT("/form", middlewares.FsUp, handles.FsForm)
+	uploadLimiter := middlewares.UploadRateLimiter(stream.ClientUploadLimit)
+	g.PUT("/put", middlewares.FsUp, uploadLimiter, handles.FsStream)
+	g.PUT("/form", middlewares.FsUp, uploadLimiter, handles.FsForm)
 	g.POST("/link", middlewares.AuthAdmin, handles.Link)
 	// g.POST("/add_aria2", handles.AddOfflineDownload)
 	// g.POST("/add_qbit", handles.AddQbittorrent)
