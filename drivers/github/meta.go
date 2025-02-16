@@ -11,6 +11,9 @@ type Addition struct {
 	Owner            string `json:"owner" type:"string" required:"true"`
 	Repo             string `json:"repo" type:"string" required:"true"`
 	Ref              string `json:"ref" type:"string" help:"A branch, a tag or a commit SHA, main branch by default."`
+	GitHubProxy      string `json:"gh_proxy" type:"string" help:"GitHub proxy, e.g. https://ghproxy.net/raw.githubusercontent.com or https://gh-proxy.com/raw.githubusercontent.com"`
+	PGPPrivateKey    string `json:"pgp_private_key" type:"text"`
+	PGPKeyPassphrase string `json:"pgp_key_passphrase" type:"string"`
 	CommitterName    string `json:"committer_name" type:"string"`
 	CommitterEmail   string `json:"committer_email" type:"string"`
 	AuthorName       string `json:"author_name" type:"string"`
@@ -21,8 +24,6 @@ type Addition struct {
 	RenameCommitMsg  string `json:"rename_commit_message" type:"text" default:"{{.UserName}} rename {{.ObjPath}} to {{.TargetName}}"`
 	CopyCommitMsg    string `json:"copy_commit_message" type:"text" default:"{{.UserName}} copy {{.ObjPath}} to {{.TargetPath}}"`
 	MoveCommitMsg    string `json:"move_commit_message" type:"text" default:"{{.UserName}} move {{.ObjPath}} to {{.TargetPath}}"`
-	PGPPrivateKey    string `json:"pgp_private_key" type:"text"`
-	PGPKeyPassphrase string `json:"pgp_key_passphrase" type:"string"`
 }
 
 var config = driver.Config{
