@@ -104,7 +104,7 @@ func (d *Github) Init(ctx context.Context) error {
 		_, err = d.getBranchHead()
 		d.isOnBranch = err == nil
 	}
-	if d.PGPPrivateKey != "" {
+	if d.GPGPrivateKey != "" {
 		if d.CommitterName == "" || d.AuthorName == "" {
 			user, e := d.getAuthenticatedUser()
 			if e != nil {
@@ -119,7 +119,7 @@ func (d *Github) Init(ctx context.Context) error {
 				d.AuthorEmail = user.Email
 			}
 		}
-		d.pgpEntity, err = loadPrivateKey(d.PGPPrivateKey, d.PGPKeyPassphrase)
+		d.pgpEntity, err = loadPrivateKey(d.GPGPrivateKey, d.GPGKeyPassphrase)
 		if err != nil {
 			return err
 		}
