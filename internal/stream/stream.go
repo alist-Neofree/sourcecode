@@ -384,7 +384,7 @@ func (c *headCache) read(p []byte) (n int, err error) {
 			n, err = lr.Read(buf[off:])
 			off += n
 			c.cur += int64(n)
-			if err == io.EOF && n == int(bufL) {
+			if err == io.EOF && off == int(bufL) {
 				err = nil
 			}
 			if err != nil {
