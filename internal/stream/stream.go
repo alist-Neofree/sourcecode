@@ -468,7 +468,7 @@ func (r *RangeReadReadAtSeeker) getReaderAtOffset(off int64) (*readerCur, error)
 		}
 	}
 	if rc != nil && off-rc.cur <= utils.MB {
-		n, err := utils.CopyWithBufferN(utils.NullWriter{}, rc.reader, off-rc.cur)
+		n, err := utils.CopyWithBufferN(io.Discard, rc.reader, off-rc.cur)
 		rc.cur += n
 		if err == io.EOF && rc.cur == off {
 			err = nil
