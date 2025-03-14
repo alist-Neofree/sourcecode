@@ -39,7 +39,7 @@ func Proxy(w http.ResponseWriter, r *http.Request, link *model.Link, file model.
 
 		if link.MFile != nil {
 			defer link.MFile.Close()
-			attachFileName(w, file)
+			attachHeader(w, file)
 			markdownContent, err = io.ReadAll(link.MFile)
 			if err != nil {
 				return fmt.Errorf("failed to read markdown content: %w", err)
