@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/model"
@@ -166,10 +167,14 @@ func attachHeader(w http.ResponseWriter, file model.Obj) {
 	w.Header().Set("Etag", GetEtag(file))
 }
 func GetEtag(file model.Obj) string {
+	hash := ""
 	for _, v := range file.GetHash().Export() {
-		if len(v) != 0 {
-			return fmt.Sprintf(`"%s"`, v)
+		if strings.Compare(v, hash) > 0 {
+			hash = v
 		}
+	}
+	if len(hash) > 0 {
+		return fmt.Sprintf(`"%s"`, hash)
 	}
 	// 参考nginx
 	return fmt.Sprintf(`"%x-%x"`, file.ModTime().Unix(), file.GetSize())
