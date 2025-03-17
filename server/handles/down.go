@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/http"
 	stdpath "path"
 	"strconv"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/setting"
 	"github.com/alist-org/alist/v3/internal/sign"
-	"github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/gin-gonic/gin"
@@ -150,11 +150,7 @@ func localProxy(c *gin.Context, link *model.Link, file model.Obj, proxyRange boo
 				if err == nil {
 					w.Header().Set("Content-Length", strconv.FormatInt(int64(buf.Len()), 10))
 					w.Header().Set("Content-Type", "text/html; charset=utf-8")
-					_, err = utils.CopyWithBuffer(c.Writer, &stream.RateLimitReader{
-						Reader:  buf,
-						Limiter: stream.ServerDownloadLimit,
-						Ctx:     c,
-					})
+					_, err = utils.CopyWithBuffer(c.Writer, buf)
 				}
 			}
 		}
@@ -188,7 +184,7 @@ func canProxy(storage driver.Driver, filename string) bool {
 }
 
 type proxyResponseWriter struct {
-	gin.ResponseWriter
+	http.ResponseWriter
 	io.Writer
 }
 
