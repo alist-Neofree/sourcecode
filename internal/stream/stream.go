@@ -160,6 +160,10 @@ var _ model.FileStreamer = (*FileStream)(nil)
 //var _ seekableStream = (*FileStream)(nil)
 
 // for most internal stream, which is either RangeReadCloser or MFile
+// Any functionality implemented based on SeekableStream should implement a Close method,
+// whose only purpose is to close the SeekableStream object. If such functionality has
+// additional resources that need to be closed, they should be added to the Closer property of
+// the SeekableStream object and be closed together when the SeekableStream object is closed.
 type SeekableStream struct {
 	FileStream
 	Link *model.Link
@@ -197,7 +201,7 @@ func NewSeekableStream(fs FileStream, link *model.Link) (*SeekableStream, error)
 			return &ss, nil
 		}
 		if ss.Link.RangeReadCloser != nil {
-			ss.rangeReadCloser = RateLimitRangeReadCloser{
+			ss.rangeReadCloser = &RateLimitRangeReadCloser{
 				RangeReadCloserIF: ss.Link.RangeReadCloser,
 				Limiter:           ServerDownloadLimit,
 			}
@@ -209,7 +213,7 @@ func NewSeekableStream(fs FileStream, link *model.Link) (*SeekableStream, error)
 			if err != nil {
 				return nil, err
 			}
-			rrc = RateLimitRangeReadCloser{
+			rrc = &RateLimitRangeReadCloser{
 				RangeReadCloserIF: rrc,
 				Limiter:           ServerDownloadLimit,
 			}
@@ -365,7 +369,7 @@ type RangeReadReadAtSeeker struct {
 	ss        *SeekableStream
 	masterOff int64
 	readers   []*readerCur
-	*headCache
+	headCache *headCache
 }
 
 type headCache struct {
@@ -407,7 +411,7 @@ func (c *headCache) read(p []byte) (n int, err error) {
 	}
 	return
 }
-func (r *headCache) close() error {
+func (r *headCache) Close() error {
 	for i := range r.bufs {
 		r.bufs[i] = nil
 	}
@@ -420,6 +424,7 @@ func (r *RangeReadReadAtSeeker) InitHeadCache() {
 		reader := r.readers[0]
 		r.readers = r.readers[1:]
 		r.headCache = &headCache{readerCur: reader}
+		r.ss.Closers.Add(r.headCache)
 	}
 }
 
@@ -572,9 +577,6 @@ func (r *RangeReadReadAtSeeker) Read(p []byte) (n int, err error) {
 }
 
 func (r *RangeReadReadAtSeeker) Close() error {
-	if r.headCache != nil {
-		_ = r.headCache.close()
-	}
 	return r.ss.Close()
 }
 

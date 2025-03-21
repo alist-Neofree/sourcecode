@@ -2,22 +2,40 @@ package sevenzip
 
 import (
 	"errors"
+	"github.com/alist-org/alist/v3/internal/archive/tool"
 	"github.com/alist-org/alist/v3/internal/errs"
-	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/stream"
 	"github.com/bodgit/sevenzip"
 	"io"
-	"os"
-	stdpath "path"
+	"io/fs"
 )
 
-func toModelObj(file os.FileInfo) *model.Object {
-	return &model.Object{
-		Name:     file.Name(),
-		Size:     file.Size(),
-		Modified: file.ModTime(),
-		IsFolder: file.IsDir(),
+type WrapReader struct {
+	Reader *sevenzip.Reader
+}
+
+func (r *WrapReader) Files() []tool.SubFile {
+	ret := make([]tool.SubFile, 0, len(r.Reader.File))
+	for _, f := range r.Reader.File {
+		ret = append(ret, &WrapFile{f: f})
 	}
+	return ret
+}
+
+type WrapFile struct {
+	f *sevenzip.File
+}
+
+func (f *WrapFile) Name() string {
+	return f.f.Name
+}
+
+func (f *WrapFile) FileInfo() fs.FileInfo {
+	return f.f.FileInfo()
+}
+
+func (f *WrapFile) Open() (io.ReadCloser, error) {
+	return f.f.Open()
 }
 
 func getReader(ss []*stream.SeekableStream, password string) (*sevenzip.Reader, error) {
@@ -40,47 +58,4 @@ func filterPassword(err error) error {
 		}
 	}
 	return err
-}
-
-func decompress(file *sevenzip.File, filePath, outputPath string) error {
-	targetPath := outputPath
-	dir, base := stdpath.Split(filePath)
-	if dir != "" {
-		targetPath = stdpath.Join(targetPath, dir)
-		err := os.MkdirAll(targetPath, 0700)
-		if err != nil {
-			return err
-		}
-	}
-	if base != "" {
-		err := _decompress(file, targetPath, func(_ float64) {})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func _decompress(file *sevenzip.File, targetPath string, up model.UpdateProgress) error {
-	rc, err := file.Open()
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-	f, err := os.OpenFile(stdpath.Join(targetPath, file.FileInfo().Name()), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = io.Copy(f, &stream.ReaderUpdatingProgress{
-		Reader: &stream.SimpleReaderWithSize{
-			Reader: rc,
-			Size:   file.FileInfo().Size(),
-		},
-		UpdateProgress: up,
-	})
-	if err != nil {
-		return err
-	}
-	return nil
 }
