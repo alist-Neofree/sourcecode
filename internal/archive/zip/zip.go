@@ -16,16 +16,20 @@ import (
 type Zip struct {
 }
 
-func (*Zip) AcceptedExtensions() []string {
+func (Zip) AcceptedExtensions() []string {
 	return []string{".zip"}
 }
 
-func (*Zip) GetMeta(ss *stream.SeekableStream, args model.ArchiveArgs) (model.ArchiveMeta, error) {
-	reader, err := stream.NewReadAtSeeker(ss, 0)
+func (Zip) AcceptedMultipartExtensions() []string {
+	return []string{}
+}
+
+func (Zip) GetMeta(ss []*stream.SeekableStream, args model.ArchiveArgs) (model.ArchiveMeta, error) {
+	reader, err := stream.NewReadAtSeeker(ss[0], 0)
 	if err != nil {
 		return nil, err
 	}
-	zipReader, err := zip.NewReader(reader, ss.GetSize())
+	zipReader, err := zip.NewReader(reader, ss[0].GetSize())
 	if err != nil {
 		return nil, err
 	}
@@ -104,12 +108,12 @@ func (*Zip) GetMeta(ss *stream.SeekableStream, args model.ArchiveArgs) (model.Ar
 	}, nil
 }
 
-func (*Zip) List(ss *stream.SeekableStream, args model.ArchiveInnerArgs) ([]model.Obj, error) {
-	reader, err := stream.NewReadAtSeeker(ss, 0)
+func (Zip) List(ss []*stream.SeekableStream, args model.ArchiveInnerArgs) ([]model.Obj, error) {
+	reader, err := stream.NewReadAtSeeker(ss[0], 0)
 	if err != nil {
 		return nil, err
 	}
-	zipReader, err := zip.NewReader(reader, ss.GetSize())
+	zipReader, err := zip.NewReader(reader, ss[0].GetSize())
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +138,7 @@ func (*Zip) List(ss *stream.SeekableStream, args model.ArchiveInnerArgs) ([]mode
 				if dir == nil && len(strs) == 2 {
 					dir = &model.Object{
 						Name:     strs[0],
-						Modified: ss.ModTime(),
+						Modified: ss[0].ModTime(),
 						IsFolder: true,
 					}
 				}
@@ -166,12 +170,12 @@ func (*Zip) List(ss *stream.SeekableStream, args model.ArchiveInnerArgs) ([]mode
 	}
 }
 
-func (*Zip) Extract(ss *stream.SeekableStream, args model.ArchiveInnerArgs) (io.ReadCloser, int64, error) {
-	reader, err := stream.NewReadAtSeeker(ss, 0)
+func (Zip) Extract(ss []*stream.SeekableStream, args model.ArchiveInnerArgs) (io.ReadCloser, int64, error) {
+	reader, err := stream.NewReadAtSeeker(ss[0], 0)
 	if err != nil {
 		return nil, 0, err
 	}
-	zipReader, err := zip.NewReader(reader, ss.GetSize())
+	zipReader, err := zip.NewReader(reader, ss[0].GetSize())
 	if err != nil {
 		return nil, 0, err
 	}
@@ -191,12 +195,12 @@ func (*Zip) Extract(ss *stream.SeekableStream, args model.ArchiveInnerArgs) (io.
 	return nil, 0, errs.ObjectNotFound
 }
 
-func (*Zip) Decompress(ss *stream.SeekableStream, outputPath string, args model.ArchiveInnerArgs, up model.UpdateProgress) error {
-	reader, err := stream.NewReadAtSeeker(ss, 0)
+func (Zip) Decompress(ss []*stream.SeekableStream, outputPath string, args model.ArchiveInnerArgs, up model.UpdateProgress) error {
+	reader, err := stream.NewReadAtSeeker(ss[0], 0)
 	if err != nil {
 		return err
 	}
-	zipReader, err := zip.NewReader(reader, ss.GetSize())
+	zipReader, err := zip.NewReader(reader, ss[0].GetSize())
 	if err != nil {
 		return err
 	}
@@ -244,5 +248,5 @@ func (*Zip) Decompress(ss *stream.SeekableStream, outputPath string, args model.
 var _ tool.Tool = (*Zip)(nil)
 
 func init() {
-	tool.RegisterTool(&Zip{})
+	tool.RegisterTool(Zip{})
 }

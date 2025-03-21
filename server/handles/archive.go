@@ -2,10 +2,6 @@ package handles
 
 import (
 	"fmt"
-	"net/url"
-	stdpath "path"
-	"strings"
-
 	"github.com/alist-org/alist/v3/internal/archive/tool"
 	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/errs"
@@ -19,6 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"net/url"
+	stdpath "path"
 )
 
 type ArchiveMetaReq struct {
@@ -376,7 +374,7 @@ func ArchiveInternalExtract(c *gin.Context) {
 func ArchiveExtensions(c *gin.Context) {
 	var ext []string
 	for key := range tool.Tools {
-		ext = append(ext, strings.TrimPrefix(key, "."))
+		ext = append(ext, key)
 	}
 	common.SuccessResp(c, ext)
 }
