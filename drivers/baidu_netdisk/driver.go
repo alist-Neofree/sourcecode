@@ -266,15 +266,15 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, stream model.F
 		if utils.IsCanceled(upCtx) {
 			break
 		}
-		if err = sem.Acquire(ctx, 1); err != nil {
-			break
-		}
 
 		i, partseq, offset, byteSize := i, partseq, int64(partseq)*sliceSize, sliceSize
 		if partseq+1 == count {
 			byteSize = lastBlockSize
 		}
 		threadG.Go(func(ctx context.Context) error {
+			if err = sem.Acquire(ctx, 1); err != nil {
+				return err
+			}
 			defer sem.Release(1)
 			params := map[string]string{
 				"method":       "upload",
