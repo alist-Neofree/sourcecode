@@ -84,7 +84,7 @@ func getArchiveMeta(ctx context.Context, storage driver.Driver, path string, arg
 		meta, err := storageAr.GetArchiveMeta(ctx, obj, args.ArchiveArgs)
 		if !errors.Is(err, errs.NotImplement) {
 			archiveMetaProvider := &model.ArchiveMetaProvider{ArchiveMeta: meta, DriverProviding: true}
-			if meta.GetTree() != nil {
+			if meta != nil && meta.GetTree() != nil {
 				archiveMetaProvider.Sort = &storage.GetStorage().Sort
 			}
 			if !storage.Config().NoCache {
