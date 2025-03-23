@@ -20,6 +20,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/pkg/errgroup"
 	"github.com/alist-org/alist/v3/pkg/utils"
+	"github.com/avast/retry-go"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -260,7 +261,10 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, stream model.F
 		}
 	}
 	// step.2 上传分片
-	threadG, upCtx := errgroup.NewGroupWithContext(ctx, d.uploadThread)
+	threadG, upCtx := errgroup.NewGroupWithContext(ctx, d.uploadThread,
+		retry.Attempts(1),
+		retry.Delay(time.Second),
+		retry.DelayType(retry.BackOffDelay))
 	sem := semaphore.NewWeighted(3)
 	for i, partseq := range precreateResp.BlockList {
 		if utils.IsCanceled(upCtx) {
