@@ -221,6 +221,9 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, file model.Fil
 
 	for i := 1; i <= count; i++ {
 		if utils.IsCanceled(ctx) {
+			if tmpF != nil {
+				_ = os.Remove(tmpF.Name())
+			}
 			return nil, ctx.Err()
 		}
 		if i == count {
@@ -229,6 +232,9 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, file model.Fil
 		n, err := utils.CopyWithBufferN(io.MultiWriter(fileMd5H, sliceMd5H, slicemd5H2Write), file, byteSize)
 		written += n
 		if err != nil && err != io.EOF {
+			if tmpF != nil {
+				_ = os.Remove(tmpF.Name())
+			}
 			return nil, err
 		}
 		blockList = append(blockList, hex.EncodeToString(sliceMd5H.Sum(nil)))

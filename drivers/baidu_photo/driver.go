@@ -281,6 +281,9 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 	written := int64(0)
 	for i := 1; i <= count; i++ {
 		if utils.IsCanceled(ctx) {
+			if tmpF != nil {
+				_ = os.Remove(tmpF.Name())
+			}
 			return nil, ctx.Err()
 		}
 		if i == count {
