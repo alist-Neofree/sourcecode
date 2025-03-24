@@ -2,9 +2,9 @@ package mediatrack
 
 import (
 	"context"
-	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"strconv"
@@ -180,13 +180,15 @@ func (d *MediaTrack) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 	if err != nil {
 		return err
 	}
-	tempFile, err := file.CacheFullInTempFile()
-	if err != nil {
-		return err
+	md5Str := file.GetHash().GetHash(utils.MD5)
+	var (
+		reader io.Reader = file
+		md5    hash.Hash
+	)
+	if len(md5Str) != utils.MD5.Width {
+		md5 = utils.MD5.NewFunc()
+		reader = io.TeeReader(file, md5)
 	}
-	defer func() {
-		_ = tempFile.Close()
-	}()
 	uploader := s3manager.NewUploader(s)
 	if file.GetSize() > s3manager.MaxUploadParts*s3manager.DefaultUploadPartSize {
 		uploader.PartSize = file.GetSize() / (s3manager.MaxUploadParts - 1)
@@ -196,7 +198,7 @@ func (d *MediaTrack) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 		Key:    &resp.Data.Object,
 		Body: driver.NewLimitedUploadStream(ctx, &driver.ReaderUpdatingProgress{
 			Reader: &driver.SimpleReaderWithSize{
-				Reader: tempFile,
+				Reader: reader,
 				Size:   file.GetSize(),
 			},
 			UpdateProgress: up,
@@ -207,20 +209,13 @@ func (d *MediaTrack) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 		return err
 	}
 	url := fmt.Sprintf("https://jayce.api.mediatrack.cn/v3/assets/%s/children", dstDir.GetID())
-	_, err = tempFile.Seek(0, io.SeekStart)
-	if err != nil {
-		return err
+	if md5 != nil {
+		md5Str = hex.EncodeToString(md5.Sum(nil))
 	}
-	h := md5.New()
-	_, err = utils.CopyWithBuffer(h, tempFile)
-	if err != nil {
-		return err
-	}
-	hash := hex.EncodeToString(h.Sum(nil))
 	data := base.Json{
 		"category":    0,
 		"description": file.GetName(),
-		"hash":        hash,
+		"hash":        md5Str,
 		"mime":        file.GetMimetype(),
 		"size":        file.GetSize(),
 		"src":         src,

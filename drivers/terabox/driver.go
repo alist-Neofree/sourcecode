@@ -3,7 +3,6 @@ package terabox
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -128,7 +127,7 @@ func (d *Terabox) Remove(ctx context.Context, obj model.Obj) error {
 	return err
 }
 
-func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
+func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) error {
 	resp, err := base.RestyClient.R().
 		SetContext(ctx).
 		Get("https://" + d.url_domain_prefix + "-data.terabox.com/rest/2.0/pcs/file?method=locateupload")
@@ -144,11 +143,11 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, stream model.FileSt
 	log.Debugln(locateupload_resp)
 
 	// precreate file
-	rawPath := stdpath.Join(dstDir.GetPath(), stream.GetName())
+	rawPath := stdpath.Join(dstDir.GetPath(), file.GetName())
 	path := encodeURIComponent(rawPath)
 
 	var precreateBlockListStr string
-	if stream.GetSize() > initialChunkSize {
+	if file.GetSize() > initialChunkSize {
 		precreateBlockListStr = `["5910a591dd8fc18c32a8f3df4fdc1761","a5fc157d78e6ad1c7e114b056c92821e"]`
 	} else {
 		precreateBlockListStr = `["5910a591dd8fc18c32a8f3df4fdc1761"]`
@@ -159,7 +158,7 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, stream model.FileSt
 		"autoinit":              "1",
 		"target_path":           dstDir.GetPath(),
 		"block_list":            precreateBlockListStr,
-		"local_mtime":           strconv.FormatInt(stream.ModTime().Unix(), 10),
+		"local_mtime":           strconv.FormatInt(file.ModTime().Unix(), 10),
 		"file_limit_switch_v34": "true",
 	}
 	var precreateResp PrecreateResp
@@ -177,12 +176,6 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, stream model.FileSt
 		return nil
 	}
 
-	// upload chunks
-	tempFile, err := stream.CacheFullInTempFile()
-	if err != nil {
-		return err
-	}
-
 	params := map[string]string{
 		"method":     "upload",
 		"path":       path,
@@ -193,13 +186,14 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, stream model.FileSt
 		"clienttype": "0",
 	}
 
-	streamSize := stream.GetSize()
+	streamSize := file.GetSize()
 	chunkSize := calculateChunkSize(streamSize)
 	chunkByteData := make([]byte, chunkSize)
 	count := int(math.Ceil(float64(streamSize) / float64(chunkSize)))
 	left := streamSize
 	uploadBlockList := make([]string, 0, count)
-	h := md5.New()
+	md5 := utils.MD5.NewFunc()
+	reader := io.TeeReader(file, md5)
 	for partseq := 0; partseq < count; partseq++ {
 		if utils.IsCanceled(ctx) {
 			return ctx.Err()
@@ -213,22 +207,21 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, stream model.FileSt
 			byteData = make([]byte, byteSize)
 		}
 		left -= byteSize
-		_, err = io.ReadFull(tempFile, byteData)
+		_, err = io.ReadFull(reader, byteData)
 		if err != nil {
 			return err
 		}
 
 		// calculate md5
-		h.Write(byteData)
-		uploadBlockList = append(uploadBlockList, hex.EncodeToString(h.Sum(nil)))
-		h.Reset()
+		md5.Reset()
+		uploadBlockList = append(uploadBlockList, hex.EncodeToString(md5.Sum(nil)))
 
 		u := "https://" + locateupload_resp.Host + "/rest/2.0/pcs/superfile2"
 		params["partseq"] = strconv.Itoa(partseq)
 		res, err := base.RestyClient.R().
 			SetContext(ctx).
 			SetQueryParams(params).
-			SetFileReader("file", stream.GetName(), driver.NewLimitedUploadStream(ctx, bytes.NewReader(byteData))).
+			SetFileReader("file", file.GetName(), driver.NewLimitedUploadStream(ctx, bytes.NewReader(byteData))).
 			SetHeader("Cookie", d.Cookie).
 			Post(u)
 		if err != nil {
@@ -252,11 +245,11 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, stream model.FileSt
 	}
 	data = map[string]string{
 		"path":        rawPath,
-		"size":        strconv.FormatInt(stream.GetSize(), 10),
+		"size":        strconv.FormatInt(file.GetSize(), 10),
 		"uploadid":    precreateResp.Uploadid,
 		"target_path": dstDir.GetPath(),
 		"block_list":  uploadBlockListStr,
-		"local_mtime": strconv.FormatInt(stream.ModTime().Unix(), 10),
+		"local_mtime": strconv.FormatInt(file.ModTime().Unix(), 10),
 	}
 	var createResp CreateResp
 	res, err = d.post_form("/api/create", params, data, &createResp)

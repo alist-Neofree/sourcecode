@@ -4,17 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/op"
+	"github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	hash_extend "github.com/alist-org/alist/v3/pkg/utils/hash"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
-	"net/http"
-	"strconv"
-	"strings"
 )
 
 type PikPak struct {
@@ -209,16 +211,11 @@ func (d *PikPak) Remove(ctx context.Context, obj model.Obj) error {
 	return err
 }
 
-func (d *PikPak) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
-	hi := stream.GetHash()
-	sha1Str := hi.GetHash(hash_extend.GCID)
-	if len(sha1Str) < hash_extend.GCID.Width {
-		tFile, err := stream.CacheFullInTempFile()
-		if err != nil {
-			return err
-		}
-
-		sha1Str, err = utils.HashFile(hash_extend.GCID, tFile, stream.GetSize())
+func (d *PikPak) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) error {
+	gcid := file.GetHash().GetHash(hash_extend.GCID)
+	var err error
+	if len(gcid) != hash_extend.GCID.Width {
+		_, gcid, err = stream.CacheFullInTempFileAndHash(file, hash_extend.GCID, file.GetSize())
 		if err != nil {
 			return err
 		}
@@ -228,9 +225,9 @@ func (d *PikPak) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 	res, err := d.request("https://api-drive.mypikpak.net/drive/v1/files", http.MethodPost, func(req *resty.Request) {
 		req.SetBody(base.Json{
 			"kind":        "drive#file",
-			"name":        stream.GetName(),
-			"size":        stream.GetSize(),
-			"hash":        strings.ToUpper(sha1Str),
+			"name":        file.GetName(),
+			"size":        file.GetSize(),
+			"hash":        strings.ToUpper(gcid),
 			"upload_type": "UPLOAD_TYPE_RESUMABLE",
 			"objProvider": base.Json{"provider": "UPLOAD_TYPE_UNKNOWN"},
 			"parent_id":   dstDir.GetID(),
@@ -254,11 +251,11 @@ func (d *PikPak) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		params.Endpoint = "mypikpak.net"
 	}
 
-	if stream.GetSize() <= 10*utils.MB { // 文件大小 小于10MB，改用普通模式上传
-		return d.UploadByOSS(ctx, &params, stream, up)
+	if file.GetSize() <= 10*utils.MB { // 文件大小 小于10MB，改用普通模式上传
+		return d.UploadByOSS(ctx, &params, file, up)
 	}
 	// 分片上传
-	return d.UploadByMultipart(ctx, &params, stream.GetSize(), stream, up)
+	return d.UploadByMultipart(ctx, &params, file.GetSize(), file, up)
 }
 
 // 离线下载文件
