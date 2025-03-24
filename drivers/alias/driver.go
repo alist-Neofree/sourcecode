@@ -280,9 +280,17 @@ func (d *Alias) Extract(ctx context.Context, obj model.Obj, args model.ArchiveIn
 		return nil, errs.ObjectNotFound
 	}
 	for _, dst := range dsts {
-		l, err := d.extract(ctx, dst, sub, args)
+		link, err := d.extract(ctx, dst, sub, args)
 		if err == nil {
-			return l, nil
+			if !args.Redirect && len(link.URL) > 0 {
+				if d.DownloadConcurrency > 0 {
+					link.Concurrency = d.DownloadConcurrency
+				}
+				if d.DownloadPartSize > 0 {
+					link.PartSize = d.DownloadPartSize * utils.KB
+				}
+			}
+			return link, nil
 		}
 	}
 	return nil, errs.NotImplement
