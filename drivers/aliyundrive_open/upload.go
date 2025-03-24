@@ -15,6 +15,7 @@ import (
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/http_range"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/avast/retry-go"
@@ -143,32 +144,32 @@ func (d *AliyundriveOpen) calProofCode(stream model.FileStreamer) (string, error
 	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
 
-func (d *AliyundriveOpen) upload(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
+func (d *AliyundriveOpen) upload(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
 	// 1. create
 	// Part Size Unit: Bytes, Default: 20MB,
 	// Maximum number of slices 10,000, ≈195.3125GB
-	var partSize = calPartSize(stream.GetSize())
+	var partSize = calPartSize(file.GetSize())
 	const dateFormat = "2006-01-02T15:04:05.000Z"
-	mtimeStr := stream.ModTime().UTC().Format(dateFormat)
-	ctimeStr := stream.CreateTime().UTC().Format(dateFormat)
+	mtimeStr := file.ModTime().UTC().Format(dateFormat)
+	ctimeStr := file.CreateTime().UTC().Format(dateFormat)
 
 	createData := base.Json{
 		"drive_id":          d.DriveId,
 		"parent_file_id":    dstDir.GetID(),
-		"name":              stream.GetName(),
+		"name":              file.GetName(),
 		"type":              "file",
 		"check_name_mode":   "ignore",
 		"local_modified_at": mtimeStr,
 		"local_created_at":  ctimeStr,
 	}
-	count := int(math.Ceil(float64(stream.GetSize()) / float64(partSize)))
+	count := int(math.Ceil(float64(file.GetSize()) / float64(partSize)))
 	createData["part_info_list"] = makePartInfos(count)
 	// rapid upload
-	rapidUpload := !stream.IsForceStreamUpload() && stream.GetSize() > 100*utils.KB && d.RapidUpload
+	rapidUpload := !file.IsForceStreamUpload() && file.GetSize() > 100*utils.KB && d.RapidUpload
 	if rapidUpload {
 		log.Debugf("[aliyundrive_open] start cal pre_hash")
 		// read 1024 bytes to calculate pre hash
-		reader, err := stream.RangeRead(http_range.Range{Start: 0, Length: 1024})
+		reader, err := file.RangeRead(http_range.Range{Start: 0, Length: 1024})
 		if err != nil {
 			return nil, err
 		}
@@ -176,39 +177,32 @@ func (d *AliyundriveOpen) upload(ctx context.Context, dstDir model.Obj, stream m
 		if err != nil {
 			return nil, err
 		}
-		createData["size"] = stream.GetSize()
+		createData["size"] = file.GetSize()
 		createData["pre_hash"] = hash
 	}
 	var createResp CreateResp
 	_, err, e := d.requestReturnErrResp("/adrive/v1.0/openFile/create", http.MethodPost, func(req *resty.Request) {
 		req.SetBody(createData).SetResult(&createResp)
 	})
-	var tmpF model.File
 	if err != nil {
 		if e.Code != "PreHashMatched" || !rapidUpload {
 			return nil, err
 		}
 		log.Debugf("[aliyundrive_open] pre_hash matched, start rapid upload")
 
-		hi := stream.GetHash()
-		hash := hi.GetHash(utils.SHA1)
-		if len(hash) <= 0 {
-			tmpF, err = stream.CacheFullInTempFile()
+		hash := file.GetHash().GetHash(utils.SHA1)
+		if len(hash) != utils.SHA1.Width {
+			_, hash, err = stream.CacheFullInTempFileAndHash(file, utils.SHA1)
 			if err != nil {
 				return nil, err
 			}
-			hash, err = utils.HashFile(utils.SHA1, tmpF)
-			if err != nil {
-				return nil, err
-			}
-
 		}
 
 		delete(createData, "pre_hash")
 		createData["proof_version"] = "v1"
 		createData["content_hash_name"] = "sha1"
 		createData["content_hash"] = hash
-		createData["proof_code"], err = d.calProofCode(stream)
+		createData["proof_code"], err = d.calProofCode(file)
 		if err != nil {
 			return nil, fmt.Errorf("cal proof code error: %s", err.Error())
 		}
@@ -239,12 +233,12 @@ func (d *AliyundriveOpen) upload(ctx context.Context, dstDir model.Obj, stream m
 				}
 				preTime = time.Now()
 			}
-			if remain := stream.GetSize() - offset; length > remain {
+			if remain := file.GetSize() - offset; length > remain {
 				length = remain
 			}
-			rd := utils.NewMultiReadable(io.LimitReader(stream, partSize))
+			rd := utils.NewMultiReadable(io.LimitReader(file, partSize))
 			if rapidUpload {
-				srd, err := stream.RangeRead(http_range.Range{Start: offset, Length: length})
+				srd, err := file.RangeRead(http_range.Range{Start: offset, Length: length})
 				if err != nil {
 					return nil, err
 				}

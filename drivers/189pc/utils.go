@@ -3,16 +3,15 @@ package _189pc
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,6 +27,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/op"
 	"github.com/alist-org/alist/v3/internal/setting"
+	"github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/errgroup"
 	"github.com/alist-org/alist/v3/pkg/utils"
 
@@ -473,12 +473,8 @@ func (y *Cloud189PC) refreshSession() (err error) {
 // 普通上传
 // 无法上传大小为0的文件
 func (y *Cloud189PC) StreamUpload(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress, isFamily bool, overwrite bool) (model.Obj, error) {
-	var sliceSize = partSize(file.GetSize())
-	count := int(math.Ceil(float64(file.GetSize()) / float64(sliceSize)))
-	lastPartSize := file.GetSize() % sliceSize
-	if file.GetSize() > 0 && lastPartSize == 0 {
-		lastPartSize = sliceSize
-	}
+	size := file.GetSize()
+	sliceSize := partSize(size)
 
 	params := Params{
 		"parentFolderId": dstDir.GetID(),
@@ -512,8 +508,13 @@ func (y *Cloud189PC) StreamUpload(ctx context.Context, dstDir model.Obj, file mo
 		retry.DelayType(retry.BackOffDelay))
 	sem := semaphore.NewWeighted(3)
 
-	fileMd5 := md5.New()
-	silceMd5 := md5.New()
+	count := int(size / sliceSize)
+	lastSliceSize := size % sliceSize
+	if lastSliceSize > 0 {
+		count++
+	}
+	fileMd5 := utils.MD5.NewFunc()
+	silceMd5 := utils.MD5.NewFunc()
 	silceMd5Hexs := make([]string, 0, count)
 
 	for i := 1; i <= count; i++ {
@@ -525,7 +526,7 @@ func (y *Cloud189PC) StreamUpload(ctx context.Context, dstDir model.Obj, file mo
 		}
 		byteData := make([]byte, sliceSize)
 		if i == count {
-			byteData = byteData[:lastPartSize]
+			byteData = byteData[:lastSliceSize]
 		}
 
 		// 读取块
@@ -607,24 +608,37 @@ func (y *Cloud189PC) RapidUpload(ctx context.Context, dstDir model.Obj, stream m
 
 // 快传
 func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress, isFamily bool, overwrite bool) (model.Obj, error) {
-	tempFile, err := file.CacheFullInTempFile()
-	if err != nil {
-		return nil, err
+	var readerAt io.ReaderAt = file.GetCache()
+	var (
+		tmpF *os.File
+		err  error
+	)
+	writers := make([]io.Writer, 0, 3)
+	size := file.GetSize()
+	if _, ok := readerAt.(*os.File); !ok && size > 0 {
+		tmpF, err = os.CreateTemp(conf.Conf.TempDir, "file-*")
+		if err != nil {
+			return nil, err
+		}
+		writers = append(writers, tmpF)
+		readerAt = tmpF
 	}
-
-	var sliceSize = partSize(file.GetSize())
-	count := int(math.Ceil(float64(file.GetSize()) / float64(sliceSize)))
-	lastSliceSize := file.GetSize() % sliceSize
-	if file.GetSize() > 0 && lastSliceSize == 0 {
-		lastSliceSize = sliceSize
+	sliceSize := partSize(size)
+	count := int(size / sliceSize)
+	lastSliceSize := size % sliceSize
+	if lastSliceSize > 0 {
+		count++
 	}
 
 	//step.1 优先计算所需信息
 	byteSize := sliceSize
-	fileMd5 := md5.New()
-	silceMd5 := md5.New()
+	fileMd5 := utils.MD5.NewFunc()
+	silceMd5 := utils.MD5.NewFunc()
 	silceMd5Hexs := make([]string, 0, count)
 	partInfos := make([]string, 0, count)
+	writers = append(writers, fileMd5, silceMd5)
+	written := int64(0)
+	var w io.Writer
 	for i := 1; i <= count; i++ {
 		if utils.IsCanceled(ctx) {
 			return nil, ctx.Err()
@@ -634,18 +648,39 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 			byteSize = lastSliceSize
 		}
 
-		silceMd5.Reset()
-		if _, err := utils.CopyWithBufferN(io.MultiWriter(fileMd5, silceMd5), tempFile, byteSize); err != nil && err != io.EOF {
+		if w == nil {
+			w = io.MultiWriter(writers...)
+		}
+		n, err := utils.CopyWithBufferN(w, file, byteSize)
+		written += n
+		if err != nil && err != io.EOF {
+			if tmpF != nil {
+				_ = os.Remove(tmpF.Name())
+			}
 			return nil, err
 		}
 		md5Byte := silceMd5.Sum(nil)
 		silceMd5Hexs = append(silceMd5Hexs, strings.ToUpper(hex.EncodeToString(md5Byte)))
 		partInfos = append(partInfos, fmt.Sprint(i, "-", base64.StdEncoding.EncodeToString(md5Byte)))
+		silceMd5.Reset()
+	}
+
+	if tmpF != nil {
+		if size > 0 && written != size {
+			_ = os.Remove(tmpF.Name())
+			return nil, errs.NewErr(err, "CreateTempFile failed, incoming stream actual size= %d, expect = %d ", written, size)
+		}
+		_, err = tmpF.Seek(0, io.SeekStart)
+		if err != nil {
+			_ = os.Remove(tmpF.Name())
+			return nil, errs.NewErr(err, "CreateTempFile failed, can't seek to 0 ")
+		}
+		file.SetTmpFile(tmpF)
 	}
 
 	fileMd5Hex := strings.ToUpper(hex.EncodeToString(fileMd5.Sum(nil)))
 	sliceMd5Hex := fileMd5Hex
-	if file.GetSize() > sliceSize {
+	if size > sliceSize {
 		sliceMd5Hex = strings.ToUpper(utils.GetMD5EncodeStr(strings.Join(silceMd5Hexs, "\n")))
 	}
 
@@ -712,7 +747,7 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 				}
 
 				// step.4 上传切片
-				_, err = y.put(ctx, uploadUrl.RequestURL, uploadUrl.Headers, false, io.NewSectionReader(tempFile, offset, byteSize), isFamily)
+				_, err = y.put(ctx, uploadUrl.RequestURL, uploadUrl.Headers, false, io.NewSectionReader(readerAt, offset, byteSize), isFamily)
 				if err != nil {
 					return err
 				}
@@ -794,11 +829,7 @@ func (y *Cloud189PC) GetMultiUploadUrls(ctx context.Context, isFamily bool, uplo
 
 // 旧版本上传，家庭云不支持覆盖
 func (y *Cloud189PC) OldUpload(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress, isFamily bool, overwrite bool) (model.Obj, error) {
-	tempFile, err := file.CacheFullInTempFile()
-	if err != nil {
-		return nil, err
-	}
-	fileMd5, err := utils.HashFile(utils.MD5, tempFile)
+	tempFile, fileMd5, err := stream.CacheFullInTempFileAndHash(file, utils.MD5)
 	if err != nil {
 		return nil, err
 	}

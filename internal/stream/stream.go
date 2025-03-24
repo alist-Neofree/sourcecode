@@ -93,27 +93,23 @@ func (f *FileStream) CacheFullInTempFile() (model.File, error) {
 	f.Add(tmpF)
 	f.tmpFile = tmpF
 	f.Reader = tmpF
-	return f.tmpFile, nil
+	return tmpF, nil
 }
 
-func (f *FileStream) CacheFullInTempFileAndUpdateProgress(up model.UpdateProgress) (model.File, error) {
+func (f *FileStream) SetTmpFile(r *os.File) {
+	f.Add(r)
+	f.tmpFile = r
+	f.Reader = r
+}
+
+func (f *FileStream) GetCache() model.File {
 	if f.tmpFile != nil {
-		return f.tmpFile, nil
+		return f.tmpFile
 	}
 	if file, ok := f.Reader.(model.File); ok {
-		return file, nil
+		return file
 	}
-	tmpF, err := utils.CreateTempFile(&ReaderUpdatingProgress{
-		Reader:         f,
-		UpdateProgress: up,
-	}, f.GetSize())
-	if err != nil {
-		return nil, err
-	}
-	f.Add(tmpF)
-	f.tmpFile = tmpF
-	f.Reader = tmpF
-	return f.tmpFile, nil
+	return nil
 }
 
 const InMemoryBufMaxSize = 10 // Megabytes
@@ -273,7 +269,7 @@ func (ss *SeekableStream) CacheFullInTempFile() (model.File, error) {
 	if ss.tmpFile != nil {
 		return ss.tmpFile, nil
 	}
-	if _, ok := ss.mFile.(*os.File); ok {
+	if ss.mFile != nil {
 		return ss.mFile, nil
 	}
 	tmpF, err := utils.CreateTempFile(ss, ss.GetSize())
@@ -283,33 +279,17 @@ func (ss *SeekableStream) CacheFullInTempFile() (model.File, error) {
 	ss.Add(tmpF)
 	ss.tmpFile = tmpF
 	ss.Reader = tmpF
-	return ss.tmpFile, nil
+	return tmpF, nil
 }
 
-func (ss *SeekableStream) CacheFullInTempFileAndUpdateProgress(up model.UpdateProgress) (model.File, error) {
+func (ss *SeekableStream) GetCache() model.File {
 	if ss.tmpFile != nil {
-		return ss.tmpFile, nil
+		return ss.tmpFile
 	}
-	if _, ok := ss.mFile.(*os.File); ok {
-		return ss.mFile, nil
+	if ss.mFile != nil {
+		return ss.mFile
 	}
-	tmpF, err := utils.CreateTempFile(&ReaderUpdatingProgress{
-		Reader:         ss,
-		UpdateProgress: up,
-	}, ss.GetSize())
-	if err != nil {
-		return nil, err
-	}
-	ss.Add(tmpF)
-	ss.tmpFile = tmpF
-	ss.Reader = tmpF
-	return ss.tmpFile, nil
-}
-
-func (f *FileStream) SetTmpFile(r *os.File) {
-	f.Add(r)
-	f.tmpFile = r
-	f.Reader = r
+	return nil
 }
 
 type ReaderWithSize interface {
