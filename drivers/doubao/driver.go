@@ -102,9 +102,18 @@ func (d *Doubao) MakeDir(ctx context.Context, parentDir model.Obj, dirName strin
 	return err
 }
 
-func (d *Doubao) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
-	// TODO move obj, optional
-	return nil, errs.NotImplement
+func (d *Doubao) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
+	var r UploadNodeResp
+	_, err := d.request("/samantha/aispace/move_node", "POST", func(req *resty.Request) {
+		req.SetBody(base.Json{
+			"node_list": []base.Json{
+				{"id": srcObj.GetID()},
+			},
+			"current_parent_id": srcObj.GetPath(),
+			"target_parent_id":  dstDir.GetID(),
+		})
+	}, &r)
+	return err
 }
 
 func (d *Doubao) Rename(ctx context.Context, srcObj model.Obj, newName string) (model.Obj, error) {
