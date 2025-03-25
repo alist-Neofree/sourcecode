@@ -116,9 +116,15 @@ func (d *Doubao) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
 	return err
 }
 
-func (d *Doubao) Rename(ctx context.Context, srcObj model.Obj, newName string) (model.Obj, error) {
-	// TODO rename obj, optional
-	return nil, errs.NotImplement
+func (d *Doubao) Rename(ctx context.Context, srcObj model.Obj, newName string) error {
+	var r BaseResp
+	_, err := d.request("/samantha/aispace/rename_node", "POST", func(req *resty.Request) {
+		req.SetBody(base.Json{
+			"node_id":   srcObj.GetID(),
+			"node_name": newName,
+		})
+	}, &r)
+	return err
 }
 
 func (d *Doubao) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
