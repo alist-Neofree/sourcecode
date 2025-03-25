@@ -3,6 +3,7 @@ package alias
 import (
 	"context"
 	"fmt"
+	"net/url"
 	stdpath "path"
 	"strings"
 
@@ -205,10 +206,11 @@ func (d *Alias) extract(ctx context.Context, dst, sub string, args model.Archive
 		}
 		if common.ShouldProxy(storage, stdpath.Base(sub)) {
 			link := &model.Link{
-				URL: fmt.Sprintf("%s/ap%s?inner=%s&sign=%s",
+				URL: fmt.Sprintf("%s/ap%s?inner=%s&pass=%s&sign=%s",
 					common.GetApiUrl(args.HttpReq),
 					utils.EncodePath(reqPath, true),
 					utils.EncodePath(args.InnerPath, true),
+					url.QueryEscape(args.Password),
 					sign.SignArchive(reqPath)),
 			}
 			if args.HttpReq != nil && d.ProxyRange {
