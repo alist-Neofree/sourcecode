@@ -127,7 +127,7 @@ func (d *Terabox) Remove(ctx context.Context, obj model.Obj) error {
 	return err
 }
 
-func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) error {
+func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
 	resp, err := base.RestyClient.R().
 		SetContext(ctx).
 		Get("https://" + d.url_domain_prefix + "-data.terabox.com/rest/2.0/pcs/file?method=locateupload")
@@ -143,11 +143,11 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, file model.FileStre
 	log.Debugln(locateupload_resp)
 
 	// precreate file
-	rawPath := stdpath.Join(dstDir.GetPath(), file.GetName())
+	rawPath := stdpath.Join(dstDir.GetPath(), stream.GetName())
 	path := encodeURIComponent(rawPath)
 
 	var precreateBlockListStr string
-	if file.GetSize() > initialChunkSize {
+	if stream.GetSize() > initialChunkSize {
 		precreateBlockListStr = `["5910a591dd8fc18c32a8f3df4fdc1761","a5fc157d78e6ad1c7e114b056c92821e"]`
 	} else {
 		precreateBlockListStr = `["5910a591dd8fc18c32a8f3df4fdc1761"]`
@@ -158,7 +158,7 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, file model.FileStre
 		"autoinit":              "1",
 		"target_path":           dstDir.GetPath(),
 		"block_list":            precreateBlockListStr,
-		"local_mtime":           strconv.FormatInt(file.ModTime().Unix(), 10),
+		"local_mtime":           strconv.FormatInt(stream.ModTime().Unix(), 10),
 		"file_limit_switch_v34": "true",
 	}
 	var precreateResp PrecreateResp
@@ -186,14 +186,14 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, file model.FileStre
 		"clienttype": "0",
 	}
 
-	streamSize := file.GetSize()
+	streamSize := stream.GetSize()
 	chunkSize := calculateChunkSize(streamSize)
 	chunkByteData := make([]byte, chunkSize)
 	count := int(math.Ceil(float64(streamSize) / float64(chunkSize)))
 	left := streamSize
 	uploadBlockList := make([]string, 0, count)
 	md5 := utils.MD5.NewFunc()
-	reader := io.TeeReader(file, md5)
+	reader := io.TeeReader(stream, md5)
 	for partseq := 0; partseq < count; partseq++ {
 		if utils.IsCanceled(ctx) {
 			return ctx.Err()
@@ -221,7 +221,7 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, file model.FileStre
 		res, err := base.RestyClient.R().
 			SetContext(ctx).
 			SetQueryParams(params).
-			SetFileReader("file", file.GetName(), driver.NewLimitedUploadStream(ctx, bytes.NewReader(byteData))).
+			SetFileReader("file", stream.GetName(), driver.NewLimitedUploadStream(ctx, bytes.NewReader(byteData))).
 			SetHeader("Cookie", d.Cookie).
 			Post(u)
 		if err != nil {
@@ -245,11 +245,11 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, file model.FileStre
 	}
 	data = map[string]string{
 		"path":        rawPath,
-		"size":        strconv.FormatInt(file.GetSize(), 10),
+		"size":        strconv.FormatInt(stream.GetSize(), 10),
 		"uploadid":    precreateResp.Uploadid,
 		"target_path": dstDir.GetPath(),
 		"block_list":  uploadBlockListStr,
-		"local_mtime": strconv.FormatInt(file.ModTime().Unix(), 10),
+		"local_mtime": strconv.FormatInt(stream.ModTime().Unix(), 10),
 	}
 	var createResp CreateResp
 	res, err = d.post_form("/api/create", params, data, &createResp)

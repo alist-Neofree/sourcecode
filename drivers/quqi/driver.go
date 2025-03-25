@@ -14,7 +14,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
-	"github.com/alist-org/alist/v3/internal/stream"
+	streamPkg "github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/alist-org/alist/v3/pkg/utils/random"
 	"github.com/aws/aws-sdk-go/aws"
@@ -282,9 +282,9 @@ func (d *Quqi) Remove(ctx context.Context, obj model.Obj) error {
 	return nil
 }
 
-func (d *Quqi) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
+func (d *Quqi) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
 	// base info
-	md5Str, shaStr := file.GetHash().GetHash(utils.MD5), file.GetHash().GetHash(utils.SHA256)
+	md5Str, shaStr := stream.GetHash().GetHash(utils.MD5), stream.GetHash().GetHash(utils.SHA256)
 	var (
 		md5 hash.Hash
 		sha hash.Hash
@@ -301,7 +301,7 @@ func (d *Quqi) Put(ctx context.Context, dstDir model.Obj, file model.FileStreame
 	}
 
 	if len(writers) > 0 {
-		_, err = stream.CacheFullInTempFileAndWriter(file, io.MultiWriter(writers...))
+		_, err = streamPkg.CacheFullInTempFileAndWriter(stream, io.MultiWriter(writers...))
 		if err != nil {
 			return nil, err
 		}
@@ -312,7 +312,7 @@ func (d *Quqi) Put(ctx context.Context, dstDir model.Obj, file model.FileStreame
 			shaStr = hex.EncodeToString(sha.Sum(nil))
 		}
 	}
-	sizeStr := strconv.FormatInt(file.GetSize(), 10)
+	sizeStr := strconv.FormatInt(stream.GetSize(), 10)
 	// init upload
 	var uploadInitResp UploadInitResp
 	_, err = d.request("", "/api/upload/v1/file/init", resty.MethodPost, func(req *resty.Request) {
@@ -321,7 +321,7 @@ func (d *Quqi) Put(ctx context.Context, dstDir model.Obj, file model.FileStreame
 			"tree_id":   "1",
 			"parent_id": dstDir.GetID(),
 			"size":      sizeStr,
-			"file_name": file.GetName(),
+			"file_name": stream.GetName(),
 			"md5":       md5Str,
 			"sha":       shaStr,
 			"is_slice":  "true",
@@ -335,16 +335,16 @@ func (d *Quqi) Put(ctx context.Context, dstDir model.Obj, file model.FileStreame
 	// if the file already exists in Quqi server, there is no need to actually upload it
 	if uploadInitResp.Data.Exist {
 		// the file name returned by Quqi does not include the extension name
-		nodeName, nodeExt := uploadInitResp.Data.NodeName, utils.Ext(file.GetName())
+		nodeName, nodeExt := uploadInitResp.Data.NodeName, utils.Ext(stream.GetName())
 		if nodeExt != "" {
 			nodeName = nodeName + "." + nodeExt
 		}
 		return &model.Object{
 			ID:       strconv.FormatInt(uploadInitResp.Data.NodeID, 10),
 			Name:     nodeName,
-			Size:     file.GetSize(),
-			Modified: file.ModTime(),
-			Ctime:    file.CreateTime(),
+			Size:     stream.GetSize(),
+			Modified: stream.ModTime(),
+			Ctime:    stream.CreateTime(),
 		}, nil
 	}
 	// listParts
@@ -407,7 +407,7 @@ func (d *Quqi) Put(ctx context.Context, dstDir model.Obj, file model.FileStreame
 	buf := make([]byte, 1024*1024*2)
 	fup := &driver.ReaderUpdatingProgress{
 		Reader: &driver.SimpleReaderWithSize{
-			Reader: file,
+			Reader: stream,
 			Size:   int64(len(buf)),
 		},
 		UpdateProgress: up,
@@ -451,16 +451,16 @@ func (d *Quqi) Put(ctx context.Context, dstDir model.Obj, file model.FileStreame
 		return nil, err
 	}
 	// the file name returned by Quqi does not include the extension name
-	nodeName, nodeExt := uploadFinishResp.Data.NodeName, utils.Ext(file.GetName())
+	nodeName, nodeExt := uploadFinishResp.Data.NodeName, utils.Ext(stream.GetName())
 	if nodeExt != "" {
 		nodeName = nodeName + "." + nodeExt
 	}
 	return &model.Object{
 		ID:       strconv.FormatInt(uploadFinishResp.Data.NodeID, 10),
 		Name:     nodeName,
-		Size:     file.GetSize(),
-		Modified: file.ModTime(),
-		Ctime:    file.CreateTime(),
+		Size:     stream.GetSize(),
+		Modified: stream.ModTime(),
+		Ctime:    stream.CreateTime(),
 	}, nil
 }
 

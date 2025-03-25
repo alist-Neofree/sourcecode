@@ -178,13 +178,13 @@ func (d *BaiduNetdisk) PutRapid(ctx context.Context, dstDir model.Obj, stream mo
 //
 // **注意**: 截至 2024/04/20 百度云盘 api 接口返回的时间永远是当前时间，而不是文件时间。
 // 而实际上云盘存储的时间是文件时间，所以此处需要覆盖时间，保证缓存与云盘的数据一致
-func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
+func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
 	// rapid upload
-	if newObj, err := d.PutRapid(ctx, dstDir, file); err == nil {
+	if newObj, err := d.PutRapid(ctx, dstDir, stream); err == nil {
 		return newObj, nil
 	}
 
-	streamSize := file.GetSize()
+	streamSize := stream.GetSize()
 	sliceSize := d.getSliceSize(streamSize)
 	count := int(math.Max(math.Ceil(float64(streamSize)/float64(sliceSize)), 1))
 	lastBlockSize := streamSize % sliceSize
@@ -202,7 +202,7 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, file model.Fil
 	sliceMd5H2 := md5.New()
 	slicemd5H2Write := utils.LimitWriter(sliceMd5H2, SliceSize)
 	var (
-		cache = file.GetFile()
+		cache = stream.GetFile()
 		tmpF  *os.File
 		err   error
 	)
@@ -229,7 +229,7 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, file model.Fil
 		if i == count {
 			byteSize = lastBlockSize
 		}
-		n, err := utils.CopyWithBufferN(io.MultiWriter(writers...), file, byteSize)
+		n, err := utils.CopyWithBufferN(io.MultiWriter(writers...), stream, byteSize)
 		written += n
 		if err != nil && err != io.EOF {
 			return nil, err
@@ -249,9 +249,9 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, file model.Fil
 	contentMd5 := hex.EncodeToString(fileMd5H.Sum(nil))
 	sliceMd5 := hex.EncodeToString(sliceMd5H2.Sum(nil))
 	blockListStr, _ := utils.Json.MarshalToString(blockList)
-	path := stdpath.Join(dstDir.GetPath(), file.GetName())
-	mtime := file.ModTime().Unix()
-	ctime := file.CreateTime().Unix()
+	path := stdpath.Join(dstDir.GetPath(), stream.GetName())
+	mtime := stream.ModTime().Unix()
+	ctime := stream.CreateTime().Unix()
 
 	// step.1 预上传
 	// 尝试获取之前的进度
@@ -311,7 +311,7 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, file model.Fil
 				"uploadid":     precreateResp.Uploadid,
 				"partseq":      strconv.Itoa(partseq),
 			}
-			err := d.uploadSlice(ctx, params, file.GetName(),
+			err := d.uploadSlice(ctx, params, stream.GetName(),
 				driver.NewLimitedUploadStream(ctx, io.NewSectionReader(cache, offset, byteSize)))
 			if err != nil {
 				return err

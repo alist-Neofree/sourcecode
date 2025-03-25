@@ -235,9 +235,9 @@ func (d *BaiduPhoto) Remove(ctx context.Context, obj model.Obj) error {
 	return errs.NotSupport
 }
 
-func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
+func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
 	// 不支持大小为0的文件
-	if file.GetSize() == 0 {
+	if stream.GetSize() == 0 {
 		return nil, fmt.Errorf("file size cannot be zero")
 	}
 
@@ -248,7 +248,7 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 	const SliceSize int64 = 1 << 18
 
 	// 计算需要的数据
-	streamSize := file.GetSize()
+	streamSize := stream.GetSize()
 	count := int(math.Ceil(float64(streamSize) / float64(DEFAULT)))
 	lastBlockSize := streamSize % DEFAULT
 	if lastBlockSize == 0 {
@@ -263,7 +263,7 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 	sliceMd5H2 := md5.New()
 	slicemd5H2Write := utils.LimitWriter(sliceMd5H2, SliceSize)
 	var (
-		cache = file.GetFile()
+		cache = stream.GetFile()
 		tmpF  *os.File
 		err   error
 	)
@@ -289,7 +289,7 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 		if i == count {
 			byteSize = lastBlockSize
 		}
-		n, err := utils.CopyWithBufferN(io.MultiWriter(writers...), file, byteSize)
+		n, err := utils.CopyWithBufferN(io.MultiWriter(writers...), stream, byteSize)
 		written += n
 		if err != nil && err != io.EOF {
 			return nil, err
@@ -316,7 +316,7 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 		"isdir":       "0",
 		"rtype":       "1",
 		"ctype":       "11",
-		"path":        fmt.Sprintf("/%s", file.GetName()),
+		"path":        fmt.Sprintf("/%s", stream.GetName()),
 		"size":        fmt.Sprint(streamSize),
 		"slice-md5":   sliceMd5,
 		"content-md5": contentMd5,
@@ -368,7 +368,7 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 				_, err = d.Post("https://c3.pcs.baidu.com/rest/2.0/pcs/superfile2", func(r *resty.Request) {
 					r.SetContext(ctx)
 					r.SetQueryParams(uploadParams)
-					r.SetFileReader("file", file.GetName(),
+					r.SetFileReader("file", stream.GetName(),
 						driver.NewLimitedUploadStream(ctx, io.NewSectionReader(cache, offset, byteSize)))
 				}, nil)
 				if err != nil {

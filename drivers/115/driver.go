@@ -8,7 +8,7 @@ import (
 	driver115 "github.com/SheltonZhu/115driver/pkg/driver"
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/model"
-	"github.com/alist-org/alist/v3/internal/stream"
+	streamPkg "github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/http_range"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/pkg/errors"
@@ -150,7 +150,7 @@ func (d *Pan115) Remove(ctx context.Context, obj model.Obj) error {
 	return d.client.Delete(obj.GetID())
 }
 
-func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
+func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
 	if err := d.WaitLimit(ctx); err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 	if ok, err := d.client.UploadAvailable(); err != nil || !ok {
 		return nil, err
 	}
-	if s.GetSize() > d.client.UploadMetaInfo.SizeLimit {
+	if stream.GetSize() > d.client.UploadMetaInfo.SizeLimit {
 		return nil, driver115.ErrUploadTooLarge
 	}
 	//if digest, err = d.client.GetDigestResult(stream); err != nil {
@@ -172,10 +172,10 @@ func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 
 	const PreHashSize int64 = 128 * utils.KB
 	hashSize := PreHashSize
-	if s.GetSize() < PreHashSize {
-		hashSize = s.GetSize()
+	if stream.GetSize() < PreHashSize {
+		hashSize = stream.GetSize()
 	}
-	reader, err := s.RangeRead(http_range.Range{Start: 0, Length: hashSize})
+	reader, err := stream.RangeRead(http_range.Range{Start: 0, Length: hashSize})
 	if err != nil {
 		return nil, err
 	}
@@ -184,9 +184,9 @@ func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 		return nil, err
 	}
 	preHash = strings.ToUpper(preHash)
-	fullHash := s.GetHash().GetHash(utils.SHA1)
+	fullHash := stream.GetHash().GetHash(utils.SHA1)
 	if len(fullHash) != utils.SHA1.Width {
-		_, fullHash, err = stream.CacheFullInTempFileAndHash(s, utils.SHA1)
+		_, fullHash, err = streamPkg.CacheFullInTempFileAndHash(stream, utils.SHA1)
 		if err != nil {
 			return nil, err
 		}
@@ -196,7 +196,7 @@ func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 	// rapid-upload
 	// note that 115 add timeout for rapid-upload,
 	// and "sig invalid" err is thrown even when the hash is correct after timeout.
-	if fastInfo, err = d.rapidUpload(s.GetSize(), s.GetName(), dirID, preHash, fullHash, s); err != nil {
+	if fastInfo, err = d.rapidUpload(stream.GetSize(), stream.GetName(), dirID, preHash, fullHash, stream); err != nil {
 		return nil, err
 	}
 	if matched, err := fastInfo.Ok(); err != nil {
@@ -211,13 +211,13 @@ func (d *Pan115) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 
 	var uploadResult *UploadResult
 	// 闪传失败，上传
-	if s.GetSize() <= 10*utils.MB { // 文件大小小于10MB，改用普通模式上传
-		if uploadResult, err = d.UploadByOSS(ctx, &fastInfo.UploadOSSParams, s, dirID, up); err != nil {
+	if stream.GetSize() <= 10*utils.MB { // 文件大小小于10MB，改用普通模式上传
+		if uploadResult, err = d.UploadByOSS(ctx, &fastInfo.UploadOSSParams, stream, dirID, up); err != nil {
 			return nil, err
 		}
 	} else {
 		// 分片上传
-		if uploadResult, err = d.UploadByMultipart(ctx, &fastInfo.UploadOSSParams, s.GetSize(), s, dirID, up); err != nil {
+		if uploadResult, err = d.UploadByMultipart(ctx, &fastInfo.UploadOSSParams, stream.GetSize(), stream, dirID, up); err != nil {
 			return nil, err
 		}
 	}

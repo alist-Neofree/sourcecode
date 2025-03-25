@@ -13,7 +13,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
-	"github.com/alist-org/alist/v3/internal/stream"
+	streamPkg "github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
@@ -135,8 +135,8 @@ func (d *QuarkOrUC) Remove(ctx context.Context, obj model.Obj) error {
 	return err
 }
 
-func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) error {
-	md5Str, sha1Str := file.GetHash().GetHash(utils.MD5), file.GetHash().GetHash(utils.SHA1)
+func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
+	md5Str, sha1Str := stream.GetHash().GetHash(utils.MD5), stream.GetHash().GetHash(utils.SHA1)
 	var (
 		md5  hash.Hash
 		sha1 hash.Hash
@@ -152,7 +152,7 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, file model.FileSt
 	}
 
 	if len(writers) > 0 {
-		_, err := stream.CacheFullInTempFileAndWriter(file, io.MultiWriter(writers...))
+		_, err := streamPkg.CacheFullInTempFileAndWriter(stream, io.MultiWriter(writers...))
 		if err != nil {
 			return err
 		}
@@ -164,7 +164,7 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, file model.FileSt
 		}
 	}
 	// pre
-	pre, err := d.upPre(file, dstDir.GetID())
+	pre, err := d.upPre(stream, dstDir.GetID())
 	if err != nil {
 		return err
 	}
@@ -182,7 +182,7 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, file model.FileSt
 	var part []byte
 	md5s := make([]string, 0)
 	defaultBytes := make([]byte, partSize)
-	total := file.GetSize()
+	total := stream.GetSize()
 	left := total
 	partNumber := 1
 	for left > 0 {
@@ -194,14 +194,14 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, file model.FileSt
 		} else {
 			part = make([]byte, left)
 		}
-		_, err := io.ReadFull(file, part)
+		_, err := io.ReadFull(stream, part)
 		if err != nil {
 			return err
 		}
 		left -= int64(len(part))
 		log.Debugf("left: %d", left)
 		reader := driver.NewLimitedUploadStream(ctx, bytes.NewReader(part))
-		m, err := d.upPart(ctx, pre, file.GetMimetype(), partNumber, reader)
+		m, err := d.upPart(ctx, pre, stream.GetMimetype(), partNumber, reader)
 		//m, err := driver.UpPart(pre, file.GetMIMEType(), partNumber, bytes, account, md5Str, sha1Str)
 		if err != nil {
 			return err

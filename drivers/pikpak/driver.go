@@ -12,7 +12,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/op"
-	"github.com/alist-org/alist/v3/internal/stream"
+	streamPkg "github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	hash_extend "github.com/alist-org/alist/v3/pkg/utils/hash"
 	"github.com/go-resty/resty/v2"
@@ -211,11 +211,11 @@ func (d *PikPak) Remove(ctx context.Context, obj model.Obj) error {
 	return err
 }
 
-func (d *PikPak) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) error {
-	gcid := file.GetHash().GetHash(hash_extend.GCID)
+func (d *PikPak) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
+	gcid := stream.GetHash().GetHash(hash_extend.GCID)
 	var err error
 	if len(gcid) != hash_extend.GCID.Width {
-		_, gcid, err = stream.CacheFullInTempFileAndHash(file, hash_extend.GCID, file.GetSize())
+		_, gcid, err = streamPkg.CacheFullInTempFileAndHash(stream, hash_extend.GCID, stream.GetSize())
 		if err != nil {
 			return err
 		}
@@ -225,8 +225,8 @@ func (d *PikPak) Put(ctx context.Context, dstDir model.Obj, file model.FileStrea
 	res, err := d.request("https://api-drive.mypikpak.net/drive/v1/files", http.MethodPost, func(req *resty.Request) {
 		req.SetBody(base.Json{
 			"kind":        "drive#file",
-			"name":        file.GetName(),
-			"size":        file.GetSize(),
+			"name":        stream.GetName(),
+			"size":        stream.GetSize(),
 			"hash":        strings.ToUpper(gcid),
 			"upload_type": "UPLOAD_TYPE_RESUMABLE",
 			"objProvider": base.Json{"provider": "UPLOAD_TYPE_UNKNOWN"},
@@ -251,11 +251,11 @@ func (d *PikPak) Put(ctx context.Context, dstDir model.Obj, file model.FileStrea
 		params.Endpoint = "mypikpak.net"
 	}
 
-	if file.GetSize() <= 10*utils.MB { // 文件大小 小于10MB，改用普通模式上传
-		return d.UploadByOSS(ctx, &params, file, up)
+	if stream.GetSize() <= 10*utils.MB { // 文件大小 小于10MB，改用普通模式上传
+		return d.UploadByOSS(ctx, &params, stream, up)
 	}
 	// 分片上传
-	return d.UploadByMultipart(ctx, &params, file.GetSize(), file, up)
+	return d.UploadByMultipart(ctx, &params, stream.GetSize(), stream, up)
 }
 
 // 离线下载文件

@@ -15,7 +15,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
-	"github.com/alist-org/alist/v3/internal/stream"
+	streamPkg "github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/cron"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/alist-org/alist/v3/pkg/utils/random"
@@ -522,21 +522,21 @@ func (d *Yun139) getPartSize(size int64) int64 {
 	return 100 * MB
 }
 
-func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer, up driver.UpdateProgress) error {
+func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
 	switch d.Addition.Type {
 	case MetaPersonalNew:
 		var err error
-		fullHash := s.GetHash().GetHash(utils.SHA256)
+		fullHash := stream.GetHash().GetHash(utils.SHA256)
 		if len(fullHash) != utils.SHA256.Width {
-			_, fullHash, err = stream.CacheFullInTempFileAndHash(s, utils.SHA256)
+			_, fullHash, err = streamPkg.CacheFullInTempFileAndHash(stream, utils.SHA256)
 			if err != nil {
 				return err
 			}
 		}
 
 		partInfos := []PartInfo{}
-		var partSize = d.getPartSize(s.GetSize())
-		part := (s.GetSize() + partSize - 1) / partSize
+		var partSize = d.getPartSize(stream.GetSize())
+		part := (stream.GetSize() + partSize - 1) / partSize
 		if part == 0 {
 			part = 1
 		}
@@ -545,7 +545,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 				return ctx.Err()
 			}
 			start := i * partSize
-			byteSize := s.GetSize() - start
+			byteSize := stream.GetSize() - start
 			if byteSize > partSize {
 				byteSize = partSize
 			}
@@ -573,9 +573,9 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 			"contentType":          "application/octet-stream",
 			"parallelUpload":       false,
 			"partInfos":            firstPartInfos,
-			"size":                 s.GetSize(),
+			"size":                 stream.GetSize(),
 			"parentFileId":         dstDir.GetID(),
-			"name":                 s.GetName(),
+			"name":                 stream.GetName(),
 			"type":                 "file",
 			"fileRenameMode":       "auto_rename",
 		}
@@ -626,9 +626,9 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 			}
 
 			// Progress
-			p := driver.NewProgress(s.GetSize(), up)
+			p := driver.NewProgress(stream.GetSize(), up)
 
-			rateLimited := driver.NewLimitedUploadStream(ctx, s)
+			rateLimited := driver.NewLimitedUploadStream(ctx, stream)
 			// 上传所有分片
 			for _, uploadPartInfo := range uploadPartInfos {
 				index := uploadPartInfo.PartNumber - 1
@@ -674,8 +674,8 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 		}
 
 		// 处理冲突
-		if resp.Data.FileName != s.GetName() {
-			log.Debugf("[139] conflict detected: %s != %s", resp.Data.FileName, s.GetName())
+		if resp.Data.FileName != stream.GetName() {
+			log.Debugf("[139] conflict detected: %s != %s", resp.Data.FileName, stream.GetName())
 			// 给服务器一定时间处理数据，避免无法刷新文件列表
 			time.Sleep(time.Millisecond * 500)
 			// 刷新并获取文件列表
@@ -685,10 +685,10 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 			}
 			// 删除旧文件
 			for _, file := range files {
-				if file.GetName() == s.GetName() {
+				if file.GetName() == stream.GetName() {
 					log.Debugf("[139] conflict: removing old: %s", file.GetName())
 					// 删除前重命名旧文件，避免仍旧冲突
-					err = d.Rename(ctx, file, s.GetName()+random.String(4))
+					err = d.Rename(ctx, file, stream.GetName()+random.String(4))
 					if err != nil {
 						return err
 					}
@@ -702,8 +702,8 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 			// 重命名新文件
 			for _, file := range files {
 				if file.GetName() == resp.Data.FileName {
-					log.Debugf("[139] conflict: renaming new: %s => %s", file.GetName(), s.GetName())
-					err = d.Rename(ctx, file, s.GetName())
+					log.Debugf("[139] conflict: renaming new: %s => %s", file.GetName(), stream.GetName())
+					err = d.Rename(ctx, file, stream.GetName())
 					if err != nil {
 						return err
 					}
@@ -723,10 +723,10 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 		}
 		// 删除旧文件
 		for _, file := range files {
-			if file.GetName() == s.GetName() {
+			if file.GetName() == stream.GetName() {
 				log.Debugf("[139] conflict: removing old: %s", file.GetName())
 				// 删除前重命名旧文件，避免仍旧冲突
-				err = d.Rename(ctx, file, s.GetName()+random.String(4))
+				err = d.Rename(ctx, file, stream.GetName()+random.String(4))
 				if err != nil {
 					return err
 				}
@@ -743,7 +743,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 			"fileCount":    1,
 			"totalSize":    0, // 去除上传大小限制
 			"uploadContentList": []base.Json{{
-				"contentName": s.GetName(),
+				"contentName": stream.GetName(),
 				"contentSize": 0, // 去除上传大小限制
 				// "digest": "5a3231986ce7a6b46e408612d385bafa"
 			}},
@@ -764,7 +764,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 				"seqNo":        random.String(32), //序列号不能为空
 				"totalSize":    0,
 				"uploadContentList": []base.Json{{
-					"contentName": s.GetName(),
+					"contentName": stream.GetName(),
 					"contentSize": 0,
 					// "digest": "5a3231986ce7a6b46e408612d385bafa"
 				}},
@@ -778,21 +778,21 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 		}
 
 		// Progress
-		p := driver.NewProgress(s.GetSize(), up)
+		p := driver.NewProgress(stream.GetSize(), up)
 
-		var partSize = d.getPartSize(s.GetSize())
-		part := (s.GetSize() + partSize - 1) / partSize
+		var partSize = d.getPartSize(stream.GetSize())
+		part := (stream.GetSize() + partSize - 1) / partSize
 		if part == 0 {
 			part = 1
 		}
-		rateLimited := driver.NewLimitedUploadStream(ctx, s)
+		rateLimited := driver.NewLimitedUploadStream(ctx, stream)
 		for i := int64(0); i < part; i++ {
 			if utils.IsCanceled(ctx) {
 				return ctx.Err()
 			}
 
 			start := i * partSize
-			byteSize := s.GetSize() - start
+			byteSize := stream.GetSize() - start
 			if byteSize > partSize {
 				byteSize = partSize
 			}
@@ -806,8 +806,8 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer
 			}
 
 			req = req.WithContext(ctx)
-			req.Header.Set("Content-Type", "text/plain;name="+unicode(s.GetName()))
-			req.Header.Set("contentSize", strconv.FormatInt(s.GetSize(), 10))
+			req.Header.Set("Content-Type", "text/plain;name="+unicode(stream.GetName()))
+			req.Header.Set("contentSize", strconv.FormatInt(stream.GetSize(), 10))
 			req.Header.Set("range", fmt.Sprintf("bytes=%d-%d", start, start+byteSize-1))
 			req.Header.Set("uploadtaskID", resp.Data.UploadResult.UploadTaskID)
 			req.Header.Set("rangeType", "0")

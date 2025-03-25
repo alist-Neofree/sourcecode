@@ -185,26 +185,26 @@ func (d *Open115) Remove(ctx context.Context, obj model.Obj) error {
 	return nil
 }
 
-func (d *Open115) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer, up driver.UpdateProgress) error {
+func (d *Open115) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) error {
 	// cal full sha1
-	sha1 := s.GetHash().GetHash(utils.SHA1)
+	sha1 := file.GetHash().GetHash(utils.SHA1)
 	var tempF model.File
 	var err error
 	if len(sha1) != utils.SHA1.Width {
-		tempF, sha1, err = stream.CacheFullInTempFileAndHash(s, utils.SHA1)
+		tempF, sha1, err = stream.CacheFullInTempFileAndHash(file, utils.SHA1)
 		if err != nil {
 			return err
 		}
 	} else {
-		tempF, err = s.CacheFullInTempFile()
+		tempF, err = file.CacheFullInTempFile()
 		if err != nil {
 			return err
 		}
 	}
 	// pre 128k sha1
 	const PreHashSize int64 = 128 * utils.KB
-	hashSize := min(s.GetSize(), PreHashSize)
-	reader, err := s.RangeRead(http_range.Range{Start: 0, Length: hashSize})
+	hashSize := min(file.GetSize(), PreHashSize)
+	reader, err := file.RangeRead(http_range.Range{Start: 0, Length: hashSize})
 	if err != nil {
 		return err
 	}
@@ -214,8 +214,8 @@ func (d *Open115) Put(ctx context.Context, dstDir model.Obj, s model.FileStreame
 	}
 	// 1. Init
 	resp, err := d.client.UploadInit(ctx, &sdk.UploadInitReq{
-		FileName: s.GetName(),
-		FileSize: s.GetSize(),
+		FileName: file.GetName(),
+		FileSize: file.GetSize(),
 		Target:   dstDir.GetID(),
 		FileID:   strings.ToUpper(sha1),
 		PreID:    strings.ToUpper(sha1128k),
@@ -250,8 +250,8 @@ func (d *Open115) Put(ctx context.Context, dstDir model.Obj, s model.FileStreame
 			return err
 		}
 		resp, err = d.client.UploadInit(ctx, &sdk.UploadInitReq{
-			FileName: s.GetName(),
-			FileSize: s.GetSize(),
+			FileName: file.GetName(),
+			FileSize: file.GetSize(),
 			Target:   dstDir.GetID(),
 			FileID:   strings.ToUpper(sha1),
 			PreID:    strings.ToUpper(sha1128k),

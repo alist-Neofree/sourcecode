@@ -12,7 +12,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/op"
-	"github.com/alist-org/alist/v3/internal/stream"
+	streamPkg "github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	hash_extend "github.com/alist-org/alist/v3/pkg/utils/hash"
 	"github.com/aws/aws-sdk-go/aws"
@@ -457,11 +457,11 @@ func (xc *XunLeiBrowserCommon) Remove(ctx context.Context, obj model.Obj) error 
 	}
 }
 
-func (xc *XunLeiBrowserCommon) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) error {
-	gcid := file.GetHash().GetHash(hash_extend.GCID)
+func (xc *XunLeiBrowserCommon) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
+	gcid := stream.GetHash().GetHash(hash_extend.GCID)
 	var err error
 	if len(gcid) != hash_extend.GCID.Width {
-		_, gcid, err = stream.CacheFullInTempFileAndHash(file, hash_extend.GCID, file.GetSize())
+		_, gcid, err = streamPkg.CacheFullInTempFileAndHash(stream, hash_extend.GCID, stream.GetSize())
 		if err != nil {
 			return err
 		}
@@ -470,8 +470,8 @@ func (xc *XunLeiBrowserCommon) Put(ctx context.Context, dstDir model.Obj, file m
 	js := base.Json{
 		"kind":        FILE,
 		"parent_id":   dstDir.GetID(),
-		"name":        file.GetName(),
-		"size":        file.GetSize(),
+		"name":        stream.GetName(),
+		"size":        stream.GetSize(),
 		"hash":        gcid,
 		"upload_type": UPLOAD_TYPE_RESUMABLE,
 		"space":       dstDir.(*Files).GetSpace(),
@@ -498,14 +498,14 @@ func (xc *XunLeiBrowserCommon) Put(ctx context.Context, dstDir model.Obj, file m
 			return err
 		}
 		uploader := s3manager.NewUploader(s)
-		if file.GetSize() > s3manager.MaxUploadParts*s3manager.DefaultUploadPartSize {
-			uploader.PartSize = file.GetSize() / (s3manager.MaxUploadParts - 1)
+		if stream.GetSize() > s3manager.MaxUploadParts*s3manager.DefaultUploadPartSize {
+			uploader.PartSize = stream.GetSize() / (s3manager.MaxUploadParts - 1)
 		}
 		_, err = uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 			Bucket:  aws.String(param.Bucket),
 			Key:     aws.String(param.Key),
 			Expires: aws.Time(param.Expiration),
-			Body:    driver.NewLimitedUploadStream(ctx, io.TeeReader(file, driver.NewProgress(file.GetSize(), up))),
+			Body:    driver.NewLimitedUploadStream(ctx, io.TeeReader(stream, driver.NewProgress(stream.GetSize(), up))),
 		})
 		return err
 	}
