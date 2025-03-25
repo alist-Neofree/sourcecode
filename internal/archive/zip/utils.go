@@ -2,9 +2,15 @@ package zip
 
 import (
 	"bytes"
+	"io"
+	"os"
+	stdpath "path"
+	"strings"
+
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/stream"
+	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/saintfish/chardet"
 	"github.com/yeka/zip"
 	"golang.org/x/text/encoding"
@@ -16,10 +22,6 @@ import (
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/encoding/unicode/utf32"
 	"golang.org/x/text/transform"
-	"io"
-	"os"
-	stdpath "path"
-	"strings"
 )
 
 func toModelObj(file os.FileInfo) *model.Object {
@@ -64,7 +66,7 @@ func _decompress(file *zip.File, targetPath, password string, up model.UpdatePro
 		return err
 	}
 	defer f.Close()
-	_, err = io.Copy(f, &stream.ReaderUpdatingProgress{
+	_, err = utils.CopyWithBuffer(f, &stream.ReaderUpdatingProgress{
 		Reader: &stream.SimpleReaderWithSize{
 			Reader: rc,
 			Size:   file.FileInfo().Size(),
