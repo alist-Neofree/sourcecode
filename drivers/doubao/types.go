@@ -41,3 +41,17 @@ type GetFileUrlResp struct {
 		} `json:"file_urls"`
 	} `json:"data"`
 }
+
+type UploadNodeResp struct {
+	BaseResp
+	Data struct {
+		NodeList []struct {
+			LocalID  string `json:"local_id"`
+			ID       string `json:"id"`
+			ParentID string `json:"parent_id"`
+			Name     string `json:"name"`
+			Key      string `json:"key"`
+			NodeType int    `json:"node_type"` // 0: 文件, 1: 文件夹
+		} `json:"node_list"`
+	} `json:"data"`
+}

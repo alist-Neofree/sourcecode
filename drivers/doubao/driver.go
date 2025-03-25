@@ -9,6 +9,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/go-resty/resty/v2"
+	"github.com/google/uuid"
 )
 
 type Doubao struct {
@@ -83,9 +84,21 @@ func (d *Doubao) Link(ctx context.Context, file model.Obj, args model.LinkArgs) 
 	}, nil
 }
 
-func (d *Doubao) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
-	// TODO create folder, optional
-	return nil, errs.NotImplement
+func (d *Doubao) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
+	var r UploadNodeResp
+	_, err := d.request("/samantha/aispace/upload_node", "POST", func(req *resty.Request) {
+		req.SetBody(base.Json{
+			"node_list": []base.Json{
+				{
+					"local_id":  uuid.New().String(),
+					"name":      dirName,
+					"parent_id": parentDir.GetID(),
+					"node_type": 1,
+				},
+			},
+		})
+	}, &r)
+	return err
 }
 
 func (d *Doubao) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
