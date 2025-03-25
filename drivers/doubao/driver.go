@@ -133,8 +133,11 @@ func (d *Doubao) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj,
 }
 
 func (d *Doubao) Remove(ctx context.Context, obj model.Obj) error {
-	// TODO remove obj, optional
-	return errs.NotImplement
+	var r BaseResp
+	_, err := d.request("/samantha/aispace/delete_node", "POST", func(req *resty.Request) {
+		req.SetBody(base.Json{"node_list": []base.Json{{"id": obj.GetID()}}})
+	}, &r)
+	return err
 }
 
 func (d *Doubao) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
