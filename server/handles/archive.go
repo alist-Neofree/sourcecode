@@ -285,7 +285,9 @@ func FsArchiveDecompress(c *gin.Context) {
 			}
 			return
 		}
-		tasks = append(tasks, t)
+		if t != nil {
+			tasks = append(tasks, t)
+		}
 	}
 	common.SuccessResp(c, gin.H{
 		"task": getTaskInfos(tasks),
