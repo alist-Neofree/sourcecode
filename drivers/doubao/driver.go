@@ -2,6 +2,7 @@ package doubao
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/alist-org/alist/v3/drivers/base"
@@ -49,39 +50,39 @@ func (d *Doubao) List(ctx context.Context, dir model.Obj, args model.ListArgs) (
 	}
 
 	for _, child := range r.Data.Children {
-		isFolder := child.NodeType == 1
-		id := child.Key
-		if isFolder {
-			id = child.ID
-		}
-		files = append(files, &model.Object{
-			ID:       id,
-			Path:     child.ParentID,
-			Name:     child.Name,
-			Size:     int64(child.Size),
-			Modified: time.Unix(int64(child.UpdateTime), 0),
-			Ctime:    time.Unix(int64(child.CreateTime), 0),
-			IsFolder: isFolder,
+		files = append(files, &Object{
+			Object: model.Object{
+				ID:       child.ID,
+				Path:     child.ParentID,
+				Name:     child.Name,
+				Size:     int64(child.Size),
+				Modified: time.Unix(int64(child.UpdateTime), 0),
+				Ctime:    time.Unix(int64(child.CreateTime), 0),
+				IsFolder: child.NodeType == 1,
+			},
+			Key: child.Key,
 		})
 	}
 	return files, nil
 }
 
 func (d *Doubao) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
-	var r GetFileUrlResp
-	_, err := d.request("/alice/message/get_file_url", "POST", func(req *resty.Request) {
-		req.SetBody(base.Json{
-			"uris": []string{file.GetID()},
-			"type": "file",
-		})
-	}, &r)
-	if err != nil {
-		return nil, err
+	if u, ok := file.(*Object); ok {
+		var r GetFileUrlResp
+		_, err := d.request("/alice/message/get_file_url", "POST", func(req *resty.Request) {
+			req.SetBody(base.Json{
+				"uris": []string{u.Key},
+				"type": "file",
+			})
+		}, &r)
+		if err != nil {
+			return nil, err
+		}
+		return &model.Link{
+			URL: r.Data.FileUrls[0].MainURL,
+		}, nil
 	}
-
-	return &model.Link{
-		URL: r.Data.FileUrls[0].MainURL,
-	}, nil
+	return nil, errors.New("can't convert obj to URL")
 }
 
 func (d *Doubao) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {

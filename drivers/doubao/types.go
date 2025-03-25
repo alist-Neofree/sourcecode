@@ -1,5 +1,7 @@
 package doubao
 
+import "github.com/alist-org/alist/v3/internal/model"
+
 type BaseResp struct {
 	Code int    `json:"code"`
 	Msg  string `json:"msg"`
@@ -54,4 +56,9 @@ type UploadNodeResp struct {
 			NodeType int    `json:"node_type"` // 0: 文件, 1: 文件夹
 		} `json:"node_list"`
 	} `json:"data"`
+}
+
+type Object struct {
+	model.Object
+	Key string
 }
