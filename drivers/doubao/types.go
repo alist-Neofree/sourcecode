@@ -30,3 +30,14 @@ type NodeInfo struct {
 	CreateTime          int    `json:"create_time"`
 	UpdateTime          int    `json:"update_time"`
 }
+
+type GetFileUrlResp struct {
+	BaseResp
+	Data struct {
+		FileUrls []struct {
+			URI     string `json:"uri"`
+			MainURL string `json:"main_url"`
+			BackURL string `json:"back_url"`
+		} `json:"file_urls"`
+	} `json:"data"`
+}

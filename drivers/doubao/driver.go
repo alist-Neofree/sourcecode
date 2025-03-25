@@ -67,8 +67,20 @@ func (d *Doubao) List(ctx context.Context, dir model.Obj, args model.ListArgs) (
 }
 
 func (d *Doubao) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
-	// TODO return link of file, required
-	return nil, errs.NotImplement
+	var r GetFileUrlResp
+	_, err := d.request("/alice/message/get_file_url", "POST", func(req *resty.Request) {
+		req.SetBody(base.Json{
+			"uris": []string{file.GetID()},
+			"type": "file",
+		})
+	}, &r)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.Link{
+		URL: r.Data.FileUrls[0].MainURL,
+	}, nil
 }
 
 func (d *Doubao) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
