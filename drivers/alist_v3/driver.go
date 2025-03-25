@@ -330,7 +330,7 @@ func (d *AListV3) Extract(ctx context.Context, obj model.Obj, args model.Archive
 	return &model.Link{
 		URL: fmt.Sprintf("%s?inner=%s&pass=%s&sign=%s",
 			resp.Data.RawURL,
-			utils.EncodePath(args.InnerPath),
+			utils.EncodePath(args.InnerPath, true),
 			url.QueryEscape(args.Password),
 			resp.Data.Sign),
 	}, nil
