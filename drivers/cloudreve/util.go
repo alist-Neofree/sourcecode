@@ -27,17 +27,20 @@ import (
 
 const loginPath = "/user/session"
 
+func (d *Cloudreve) getUA() string {
+	if d.CustomUA != "" {
+		return d.CustomUA
+	}
+	return base.UserAgent
+}
+
 func (d *Cloudreve) request(method string, path string, callback base.ReqCallback, out interface{}) error {
 	u := d.Address + "/api/v3" + path
-	ua := d.CustomUA
-	if ua == "" {
-		ua = base.UserAgent
-	}
 	req := base.RestyClient.R()
 	req.SetHeaders(map[string]string{
 		"Cookie":     "cloudreve-session=" + d.Cookie,
 		"Accept":     "application/json, text/plain, */*",
-		"User-Agent": ua,
+		"User-Agent": d.getUA(),
 	})
 
 	var r Resp
@@ -161,15 +164,11 @@ func (d *Cloudreve) GetThumb(file Object) (model.Thumbnail, error) {
 	if !d.Addition.EnableThumbAndFolderSize {
 		return model.Thumbnail{}, nil
 	}
-	ua := d.CustomUA
-	if ua == "" {
-		ua = base.UserAgent
-	}
 	req := base.NoRedirectClient.R()
 	req.SetHeaders(map[string]string{
 		"Cookie":     "cloudreve-session=" + d.Cookie,
 		"Accept":     "image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-		"User-Agent": ua,
+		"User-Agent": d.getUA(),
 	})
 	resp, err := req.Execute(http.MethodGet, d.Address+"/api/v3/file/thumb/"+file.Id)
 	if err != nil {
@@ -204,6 +203,7 @@ func (d *Cloudreve) upLocal(ctx context.Context, stream model.FileStreamer, u Up
 			req.SetHeader("Content-Type", "application/octet-stream")
 			req.SetContentLength(true)
 			req.SetHeader("Content-Length", strconv.FormatInt(byteSize, 10))
+			req.SetHeader("User-Agent", d.getUA())
 			req.SetBody(driver.NewLimitedUploadStream(ctx, bytes.NewBuffer(byteData)))
 		}, nil)
 		if err != nil {
@@ -247,6 +247,7 @@ func (d *Cloudreve) upRemote(ctx context.Context, stream model.FileStreamer, u U
 		req.ContentLength = byteSize
 		// req.Header.Set("Content-Length", strconv.Itoa(int(byteSize)))
 		req.Header.Set("Authorization", fmt.Sprint(credential))
+		req.Header.Set("User-Agent", d.getUA())
 		finish += byteSize
 		res, err := base.HttpClient.Do(req)
 		if err != nil {
@@ -287,6 +288,7 @@ func (d *Cloudreve) upOneDrive(ctx context.Context, stream model.FileStreamer, u
 		req.ContentLength = byteSize
 		// req.Header.Set("Content-Length", strconv.Itoa(int(byteSize)))
 		req.Header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", finish, finish+byteSize-1, stream.GetSize()))
+		req.Header.Set("User-Agent", d.getUA())
 		finish += byteSize
 		res, err := base.HttpClient.Do(req)
 		if err != nil {
