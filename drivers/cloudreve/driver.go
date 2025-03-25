@@ -187,6 +187,7 @@ func (d *Cloudreve) Put(ctx context.Context, dstDir model.Obj, stream model.File
 			buf = buf[:n]
 			err = d.request(http.MethodPost, "/file/upload/"+u.SessionID+"/"+strconv.Itoa(chunk), func(req *resty.Request) {
 				req.SetHeader("Content-Type", "application/octet-stream")
+				req.SetContentLength(true)
 				req.SetHeader("Content-Length", strconv.Itoa(n))
 				req.SetBody(driver.NewLimitedUploadStream(ctx, bytes.NewReader(buf)))
 			}, nil)
