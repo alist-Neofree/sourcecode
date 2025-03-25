@@ -154,6 +154,10 @@ func FsForm(c *gin.Context) {
 	if sha256 := c.GetHeader("X-File-Sha256"); sha256 != "" {
 		h[utils.SHA256] = sha256
 	}
+	mimetype := file.Header.Get("Content-Type")
+	if len(mimetype) == 0 {
+		mimetype = utils.GetMimeType(name)
+	}
 	s := stream.FileStream{
 		Obj: &model.Object{
 			Name:     name,
@@ -162,7 +166,7 @@ func FsForm(c *gin.Context) {
 			HashInfo: utils.NewHashInfoByMap(h),
 		},
 		Reader:       f,
-		Mimetype:     file.Header.Get("Content-Type"),
+		Mimetype:     mimetype,
 		WebPutAsTask: asTask,
 	}
 	var t task.TaskExtensionInfo
@@ -172,12 +176,7 @@ func FsForm(c *gin.Context) {
 		}{f}
 		t, err = fs.PutAsTask(c, dir, &s)
 	} else {
-		ss, err := stream.NewSeekableStream(s, nil)
-		if err != nil {
-			common.ErrorResp(c, err, 500)
-			return
-		}
-		err = fs.PutDirectly(c, dir, ss, true)
+		err = fs.PutDirectly(c, dir, &s, true)
 	}
 	if err != nil {
 		common.ErrorResp(c, err, 500)

@@ -102,7 +102,7 @@ func (f *FileStream) SetTmpFile(r *os.File) {
 	f.Reader = r
 }
 
-func (f *FileStream) GetCache() model.File {
+func (f *FileStream) GetFile() model.File {
 	if f.tmpFile != nil {
 		return f.tmpFile
 	}
@@ -282,7 +282,7 @@ func (ss *SeekableStream) CacheFullInTempFile() (model.File, error) {
 	return tmpF, nil
 }
 
-func (ss *SeekableStream) GetCache() model.File {
+func (ss *SeekableStream) GetFile() model.File {
 	if ss.tmpFile != nil {
 		return ss.tmpFile
 	}

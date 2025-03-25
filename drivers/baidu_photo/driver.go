@@ -244,21 +244,6 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 	// TODO:
 	// 暂时没有找到妙传方式
 
-	var readerAt = file.GetCache()
-	var (
-		tmpF *os.File
-		err  error
-	)
-	writers := make([]io.Writer, 0, 4)
-	if _, ok := readerAt.(io.ReaderAt); !ok {
-		tmpF, err = os.CreateTemp(conf.Conf.TempDir, "file-*")
-		if err != nil {
-			return nil, err
-		}
-		writers = append(writers, tmpF)
-		readerAt = tmpF
-	}
-
 	const DEFAULT int64 = 1 << 22
 	const SliceSize int64 = 1 << 18
 
@@ -277,13 +262,28 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 	sliceMd5H := md5.New()
 	sliceMd5H2 := md5.New()
 	slicemd5H2Write := utils.LimitWriter(sliceMd5H2, SliceSize)
+	var (
+		cache = file.GetFile()
+		tmpF  *os.File
+		err   error
+	)
+	writers := make([]io.Writer, 0, 4)
+	if _, ok := cache.(io.ReaderAt); !ok {
+		tmpF, err = os.CreateTemp(conf.Conf.TempDir, "file-*")
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			_ = tmpF.Close()
+			_ = os.Remove(tmpF.Name())
+		}()
+		cache = tmpF
+		writers = append(writers, tmpF)
+	}
 	writers = append(writers, fileMd5H, sliceMd5H, slicemd5H2Write)
 	written := int64(0)
 	for i := 1; i <= count; i++ {
 		if utils.IsCanceled(ctx) {
-			if tmpF != nil {
-				_ = os.Remove(tmpF.Name())
-			}
 			return nil, ctx.Err()
 		}
 		if i == count {
@@ -292,9 +292,6 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 		n, err := utils.CopyWithBufferN(io.MultiWriter(writers...), file, byteSize)
 		written += n
 		if err != nil && err != io.EOF {
-			if tmpF != nil {
-				_ = os.Remove(tmpF.Name())
-			}
 			return nil, err
 		}
 		sliceMD5List = append(sliceMD5List, hex.EncodeToString(sliceMd5H.Sum(nil)))
@@ -302,15 +299,12 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 	}
 	if tmpF != nil {
 		if written != streamSize {
-			_ = os.Remove(tmpF.Name())
 			return nil, errs.NewErr(err, "CreateTempFile failed, incoming stream actual size= %d, expect = %d ", written, streamSize)
 		}
 		_, err = tmpF.Seek(0, io.SeekStart)
 		if err != nil {
-			_ = os.Remove(tmpF.Name())
 			return nil, errs.NewErr(err, "CreateTempFile failed, can't seek to 0 ")
 		}
-		file.SetTmpFile(tmpF)
 	}
 	contentMd5 := hex.EncodeToString(fileMd5H.Sum(nil))
 	sliceMd5 := hex.EncodeToString(sliceMd5H2.Sum(nil))
@@ -375,7 +369,7 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 					r.SetContext(ctx)
 					r.SetQueryParams(uploadParams)
 					r.SetFileReader("file", file.GetName(),
-						driver.NewLimitedUploadStream(ctx, io.NewSectionReader(readerAt, offset, byteSize)))
+						driver.NewLimitedUploadStream(ctx, io.NewSectionReader(cache, offset, byteSize)))
 				}, nil)
 				if err != nil {
 					return err

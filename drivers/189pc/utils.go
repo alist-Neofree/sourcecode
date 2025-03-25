@@ -608,20 +608,24 @@ func (y *Cloud189PC) RapidUpload(ctx context.Context, dstDir model.Obj, stream m
 
 // 快传
 func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress, isFamily bool, overwrite bool) (model.Obj, error) {
-	var readerAt io.ReaderAt = file.GetCache()
 	var (
-		tmpF *os.File
-		err  error
+		cache = file.GetFile()
+		tmpF  *os.File
+		err   error
 	)
 	writers := make([]io.Writer, 0, 3)
 	size := file.GetSize()
-	if _, ok := readerAt.(*os.File); !ok && size > 0 {
+	if _, ok := cache.(io.ReaderAt); !ok && size > 0 {
 		tmpF, err = os.CreateTemp(conf.Conf.TempDir, "file-*")
 		if err != nil {
 			return nil, err
 		}
+		defer func() {
+			_ = tmpF.Close()
+			_ = os.Remove(tmpF.Name())
+		}()
 		writers = append(writers, tmpF)
-		readerAt = tmpF
+		cache = tmpF
 	}
 	sliceSize := partSize(size)
 	count := int(size / sliceSize)
@@ -638,7 +642,6 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 	partInfos := make([]string, 0, count)
 	writers = append(writers, fileMd5, silceMd5)
 	written := int64(0)
-	var w io.Writer
 	for i := 1; i <= count; i++ {
 		if utils.IsCanceled(ctx) {
 			return nil, ctx.Err()
@@ -648,15 +651,9 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 			byteSize = lastSliceSize
 		}
 
-		if w == nil {
-			w = io.MultiWriter(writers...)
-		}
-		n, err := utils.CopyWithBufferN(w, file, byteSize)
+		n, err := utils.CopyWithBufferN(io.MultiWriter(writers...), file, byteSize)
 		written += n
 		if err != nil && err != io.EOF {
-			if tmpF != nil {
-				_ = os.Remove(tmpF.Name())
-			}
 			return nil, err
 		}
 		md5Byte := silceMd5.Sum(nil)
@@ -667,15 +664,12 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 
 	if tmpF != nil {
 		if size > 0 && written != size {
-			_ = os.Remove(tmpF.Name())
 			return nil, errs.NewErr(err, "CreateTempFile failed, incoming stream actual size= %d, expect = %d ", written, size)
 		}
 		_, err = tmpF.Seek(0, io.SeekStart)
 		if err != nil {
-			_ = os.Remove(tmpF.Name())
 			return nil, errs.NewErr(err, "CreateTempFile failed, can't seek to 0 ")
 		}
-		file.SetTmpFile(tmpF)
 	}
 
 	fileMd5Hex := strings.ToUpper(hex.EncodeToString(fileMd5.Sum(nil)))
@@ -747,7 +741,7 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 				}
 
 				// step.4 上传切片
-				_, err = y.put(ctx, uploadUrl.RequestURL, uploadUrl.Headers, false, io.NewSectionReader(readerAt, offset, byteSize), isFamily)
+				_, err = y.put(ctx, uploadUrl.RequestURL, uploadUrl.Headers, false, io.NewSectionReader(cache, offset, byteSize), isFamily)
 				if err != nil {
 					return err
 				}

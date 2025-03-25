@@ -88,7 +88,7 @@ func (t *ArchiveDownloadTask) RunWithoutPushUploadTask() (*ArchiveContentUploadT
 		}
 	}()
 	var decompressUp model.UpdateProgress
-	if t.CacheFull {
+	if t.CacheFull && ss.GetFile() == nil {
 		t.SetTotalBytes(srcObj.GetSize())
 		t.status = "getting src object"
 		_, err = stream.CacheFullInTempFileAndUpdateProgress(ss, t.SetProgress)

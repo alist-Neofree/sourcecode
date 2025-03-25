@@ -49,8 +49,8 @@ type FileStreamer interface {
 	RangeRead(http_range.Range) (io.Reader, error)
 	//for a non-seekable Stream, if Read is called, this function won't work
 	CacheFullInTempFile() (File, error)
-	GetCache() File
 	SetTmpFile(r *os.File)
+	GetFile() File
 }
 
 type UpdateProgress func(percentage float64)
