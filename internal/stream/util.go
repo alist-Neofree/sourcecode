@@ -141,22 +141,9 @@ func CacheFullInTempFileAndWriter(stream model.FileStreamer, w io.Writer) (model
 
 func CacheFullInTempFileAndHash(stream model.FileStreamer, hashType *utils.HashType, params ...any) (model.File, string, error) {
 	h := hashType.NewFunc(params...)
-	if cache := stream.GetFile(); cache != nil {
-		_, err := cache.Seek(0, io.SeekStart)
-		if err == nil {
-			_, err = utils.CopyWithBuffer(h, cache)
-			if err == nil {
-				_, err = cache.Seek(0, io.SeekStart)
-			}
-			return cache, hex.EncodeToString(h.Sum(nil)), err
-		}
+	tmpF, err := CacheFullInTempFileAndWriter(stream, h)
+	if err != nil {
 		return nil, "", err
 	}
-
-	tmpF, err := utils.CreateTempFile(io.TeeReader(stream, h), stream.GetSize())
-	if err == nil {
-		stream.SetTmpFile(tmpF)
-		return tmpF, hex.EncodeToString(h.Sum(nil)), nil
-	}
-	return nil, "", err
+	return tmpF, hex.EncodeToString(h.Sum(nil)), err
 }

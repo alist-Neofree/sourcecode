@@ -533,18 +533,19 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			}
 		}
 
-		partInfos := []PartInfo{}
-		var partSize = d.getPartSize(stream.GetSize())
-		part := (stream.GetSize() + partSize - 1) / partSize
-		if part == 0 {
-			part = 1
+		size := stream.GetSize()
+		var partSize = d.getPartSize(size)
+		part := size / partSize
+		if size%partSize > 0 {
+			part++
 		}
-		for i := int64(0); i < part; i++ {
+		partInfos := make([]PartInfo, 0, part)
+		for i := range part {
 			if utils.IsCanceled(ctx) {
 				return ctx.Err()
 			}
 			start := i * partSize
-			byteSize := stream.GetSize() - start
+			byteSize := size - start
 			if byteSize > partSize {
 				byteSize = partSize
 			}
@@ -572,7 +573,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			"contentType":          "application/octet-stream",
 			"parallelUpload":       false,
 			"partInfos":            firstPartInfos,
-			"size":                 stream.GetSize(),
+			"size":                 size,
 			"parentFileId":         dstDir.GetID(),
 			"name":                 stream.GetName(),
 			"type":                 "file",
@@ -625,7 +626,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			}
 
 			// Progress
-			p := driver.NewProgress(stream.GetSize(), up)
+			p := driver.NewProgress(size, up)
 
 			rateLimited := driver.NewLimitedUploadStream(ctx, stream)
 			// 上传所有分片
@@ -776,22 +777,22 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			return err
 		}
 
-		// Progress
-		p := driver.NewProgress(stream.GetSize(), up)
-
-		var partSize = d.getPartSize(stream.GetSize())
-		part := (stream.GetSize() + partSize - 1) / partSize
-		if part == 0 {
-			part = 1
+		size := stream.GetSize()
+		var partSize = d.getPartSize(size)
+		part := size / partSize
+		if size%partSize > 0 {
+			part++
 		}
+		// Progress
+		p := driver.NewProgress(size, up)
 		rateLimited := driver.NewLimitedUploadStream(ctx, stream)
-		for i := int64(0); i < part; i++ {
+		for i := range part {
 			if utils.IsCanceled(ctx) {
 				return ctx.Err()
 			}
 
 			start := i * partSize
-			byteSize := stream.GetSize() - start
+			byteSize := size - start
 			if byteSize > partSize {
 				byteSize = partSize
 			}
@@ -806,7 +807,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 
 			req = req.WithContext(ctx)
 			req.Header.Set("Content-Type", "text/plain;name="+unicode(stream.GetName()))
-			req.Header.Set("contentSize", strconv.FormatInt(stream.GetSize(), 10))
+			req.Header.Set("contentSize", strconv.FormatInt(size, 10))
 			req.Header.Set("range", fmt.Sprintf("bytes=%d-%d", start, start+byteSize-1))
 			req.Header.Set("uploadtaskID", resp.Data.UploadResult.UploadTaskID)
 			req.Header.Set("rangeType", "0")

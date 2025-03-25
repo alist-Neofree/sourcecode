@@ -525,7 +525,7 @@ func (y *Cloud189PC) StreamUpload(ctx context.Context, dstDir model.Obj, file mo
 			break
 		}
 		byteData := make([]byte, sliceSize)
-		if i == count {
+		if i == count && lastSliceSize > 0 {
 			byteData = byteData[:lastSliceSize]
 		}
 
@@ -632,6 +632,8 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 	lastSliceSize := size % sliceSize
 	if lastSliceSize > 0 {
 		count++
+	} else {
+		lastSliceSize = sliceSize
 	}
 
 	//step.1 优先计算所需信息

@@ -178,27 +178,28 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, stream model.File
 		return nil
 	}
 	// part up
-	partSize := pre.Metadata.PartSize
-	var part []byte
-	md5s := make([]string, 0)
-	defaultBytes := make([]byte, partSize)
 	total := stream.GetSize()
-	left := total
+	partSize := int64(pre.Metadata.PartSize)
+	part := make([]byte, pre.Metadata.PartSize)
+	count := int(total / partSize)
+	if total%partSize > 0 {
+		count++
+	}
+	md5s := make([]string, 0, count)
 	partNumber := 1
+	left := total
 	for left > 0 {
 		if utils.IsCanceled(ctx) {
 			return ctx.Err()
 		}
-		if left > int64(partSize) {
-			part = defaultBytes
-		} else {
-			part = make([]byte, left)
+		if left < partSize {
+			part = part[:left]
 		}
-		_, err := io.ReadFull(stream, part)
+		n, err := io.ReadFull(stream, part)
 		if err != nil {
 			return err
 		}
-		left -= int64(len(part))
+		left -= int64(n)
 		log.Debugf("left: %d", left)
 		reader := driver.NewLimitedUploadStream(ctx, bytes.NewReader(part))
 		m, err := d.upPart(ctx, pre, stream.GetMimetype(), partNumber, reader)

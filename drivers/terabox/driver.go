@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"math"
 	stdpath "path"
 	"strconv"
 
@@ -189,25 +188,24 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, stream model.FileSt
 	streamSize := stream.GetSize()
 	chunkSize := calculateChunkSize(streamSize)
 	chunkByteData := make([]byte, chunkSize)
-	count := int(math.Ceil(float64(streamSize) / float64(chunkSize)))
-	left := streamSize
+	count := int(streamSize / chunkSize)
+	if streamSize%chunkSize > 0 {
+		count++
+	}
 	uploadBlockList := make([]string, 0, count)
+	left := streamSize
 	md5 := utils.MD5.NewFunc()
 	reader := io.TeeReader(stream, md5)
-	for partseq := 0; partseq < count; partseq++ {
+	for partseq := range count {
 		if utils.IsCanceled(ctx) {
 			return ctx.Err()
 		}
 		byteSize := chunkSize
-		var byteData []byte
-		if left >= chunkSize {
-			byteData = chunkByteData
-		} else {
-			byteSize = left
-			byteData = make([]byte, byteSize)
+		if left < chunkSize {
+			chunkByteData = chunkByteData[:left]
 		}
 		left -= byteSize
-		_, err = io.ReadFull(reader, byteData)
+		_, err = io.ReadFull(reader, chunkByteData)
 		if err != nil {
 			return err
 		}
@@ -221,7 +219,7 @@ func (d *Terabox) Put(ctx context.Context, dstDir model.Obj, stream model.FileSt
 		res, err := base.RestyClient.R().
 			SetContext(ctx).
 			SetQueryParams(params).
-			SetFileReader("file", stream.GetName(), driver.NewLimitedUploadStream(ctx, bytes.NewReader(byteData))).
+			SetFileReader("file", stream.GetName(), driver.NewLimitedUploadStream(ctx, bytes.NewReader(chunkByteData))).
 			SetHeader("Cookie", d.Cookie).
 			Post(u)
 		if err != nil {

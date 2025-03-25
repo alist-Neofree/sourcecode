@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"math"
 	"net/url"
 	"os"
 	stdpath "path"
@@ -186,9 +185,11 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, stream model.F
 
 	streamSize := stream.GetSize()
 	sliceSize := d.getSliceSize(streamSize)
-	count := int(math.Max(math.Ceil(float64(streamSize)/float64(sliceSize)), 1))
+	count := int(streamSize / sliceSize)
 	lastBlockSize := streamSize % sliceSize
-	if streamSize > 0 && lastBlockSize == 0 {
+	if lastBlockSize > 0 {
+		count++
+	} else {
 		lastBlockSize = sliceSize
 	}
 
