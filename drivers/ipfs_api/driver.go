@@ -79,8 +79,7 @@ func (d *IPFS) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]
 
 func (d *IPFS) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	gateurl := d.gateURL.JoinPath(file.GetID())
-	gateurl.RawQuery = "filename" + url.PathEscape(file.GetName())
-	fmt.Println(gateurl)
+	gateurl.RawQuery = "filename=" + url.PathEscape(file.GetName())
 	return &model.Link{URL: gateurl.String()}, nil
 }
 
@@ -115,7 +114,6 @@ func (d *IPFS) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 		return fmt.Errorf("only write in mfs mode")
 	}
 	newFileName := dstDir.GetPath() + "/" + filepath.Base(srcObj.GetPath())
-	fmt.Println(newFileName)
 	return d.sh.FilesCp(ctx, srcObj.GetPath(), strings.ReplaceAll(newFileName, "\\", "/"))
 }
 
