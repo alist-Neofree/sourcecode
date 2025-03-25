@@ -200,7 +200,7 @@ func (d *Cloudreve) Put(ctx context.Context, dstDir model.Obj, stream model.File
 	}
 	if err != nil {
 		// 删除失败的会话
-		err = d.request(http.MethodDelete, "/file/upload/"+u.SessionID, nil, nil)
+		_ = d.request(http.MethodDelete, "/file/upload/"+u.SessionID, nil, nil)
 		return err
 	}
 	return nil
