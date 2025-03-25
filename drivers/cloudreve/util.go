@@ -181,32 +181,36 @@ func (d *Cloudreve) GetThumb(file Object) (model.Thumbnail, error) {
 }
 
 func (d *Cloudreve) upLocal(ctx context.Context, stream model.FileStreamer, u UploadInfo, up driver.UpdateProgress) error {
-	var chunkSize = u.ChunkSize
-	var buf []byte
-	var chunk int
-	for {
-		var n int
-		buf = make([]byte, chunkSize)
-		n, err := io.ReadAtLeast(stream, buf, chunkSize)
-		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-			if err == io.EOF {
-				return nil
-			}
+	var finish int64 = 0
+	var chunk int = 0
+	DEFAULT := int64(u.ChunkSize)
+	for finish < stream.GetSize() {
+		if utils.IsCanceled(ctx) {
+			return ctx.Err()
+		}
+		utils.Log.Debugf("[Cloudreve-Local] upload: %d", finish)
+		var byteSize = DEFAULT
+		left := stream.GetSize() - finish
+		if left < DEFAULT {
+			byteSize = left
+		}
+		byteData := make([]byte, byteSize)
+		n, err := io.ReadFull(stream, byteData)
+		utils.Log.Debug(err, n)
+		if err != nil {
 			return err
 		}
-		if n == 0 {
-			break
-		}
-		buf = buf[:n]
 		err = d.request(http.MethodPost, "/file/upload/"+u.SessionID+"/"+strconv.Itoa(chunk), func(req *resty.Request) {
 			req.SetHeader("Content-Type", "application/octet-stream")
 			req.SetContentLength(true)
-			req.SetHeader("Content-Length", strconv.Itoa(n))
-			req.SetBody(driver.NewLimitedUploadStream(ctx, bytes.NewReader(buf)))
+			req.SetHeader("Content-Length", strconv.FormatInt(byteSize, 10))
+			req.SetBody(driver.NewLimitedUploadStream(ctx, bytes.NewBuffer(byteData)))
 		}, nil)
 		if err != nil {
 			break
 		}
+		finish += byteSize
+		up(float64(finish) * 100 / float64(stream.GetSize()))
 		chunk++
 	}
 	return nil
