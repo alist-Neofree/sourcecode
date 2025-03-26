@@ -1,6 +1,7 @@
 package _123
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -69,25 +70,23 @@ func (d *Pan123) completeS3(ctx context.Context, upReq *UploadResp, file model.F
 }
 
 func (d *Pan123) newUpload(ctx context.Context, upReq *UploadResp, file model.FileStreamer, up driver.UpdateProgress) error {
-	chunkSize := int64(16 * utils.MB)
 	// fetch s3 pre signed urls
 	size := file.GetSize()
+	chunkSize := min(size, 16*utils.MB)
 	chunkCount := int(size / chunkSize)
 	lastChunkSize := size % chunkSize
 	if lastChunkSize > 0 {
 		chunkCount++
-	} else {
-		lastChunkSize = chunkSize
 	}
 	// only 1 batch is allowed
-	isMultipart := chunkCount > 1
 	batchSize := 1
 	getS3UploadUrl := d.getS3Auth
-	if isMultipart {
+	if chunkCount > 1 {
 		batchSize = 10
 		getS3UploadUrl = d.getS3PreSignedUrls
 	}
 	limited := driver.NewLimitedUploadStream(ctx, file)
+	buf := make([]byte, chunkSize)
 	for i := 1; i <= chunkCount; i += batchSize {
 		if utils.IsCanceled(ctx) {
 			return ctx.Err()
@@ -103,10 +102,17 @@ func (d *Pan123) newUpload(ctx context.Context, upReq *UploadResp, file model.Fi
 			if utils.IsCanceled(ctx) {
 				return ctx.Err()
 			}
-			if j == chunkCount {
-				chunkSize = lastChunkSize
+			if j == chunkCount && lastChunkSize > 0 {
+				buf = buf[:lastChunkSize]
 			}
-			err = d.uploadS3Chunk(ctx, upReq, s3PreSignedUrls, j, end, io.LimitReader(limited, chunkSize), chunkSize, false, getS3UploadUrl)
+			n, err := io.ReadFull(limited, buf)
+			if err == io.ErrUnexpectedEOF {
+				return fmt.Errorf("upload s3 chunk %d failed, can't read data, expected=%d, got=%d", j, len(buf), n)
+			}
+			if err != nil {
+				return err
+			}
+			err = d.uploadS3Chunk(ctx, upReq, s3PreSignedUrls, j, end, bytes.NewReader(buf), int64(n), false, getS3UploadUrl)
 			if err != nil {
 				return err
 			}
@@ -117,7 +123,7 @@ func (d *Pan123) newUpload(ctx context.Context, upReq *UploadResp, file model.Fi
 	return d.completeS3(ctx, upReq, file, chunkCount > 1)
 }
 
-func (d *Pan123) uploadS3Chunk(ctx context.Context, upReq *UploadResp, s3PreSignedUrls *S3PreSignedURLs, cur, end int, reader io.Reader, curSize int64, retry bool, getS3UploadUrl func(ctx context.Context, upReq *UploadResp, start int, end int) (*S3PreSignedURLs, error)) error {
+func (d *Pan123) uploadS3Chunk(ctx context.Context, upReq *UploadResp, s3PreSignedUrls *S3PreSignedURLs, cur, end int, reader *bytes.Reader, curSize int64, retry bool, getS3UploadUrl func(ctx context.Context, upReq *UploadResp, start int, end int) (*S3PreSignedURLs, error)) error {
 	uploadUrl := s3PreSignedUrls.Data.PreSignedUrls[strconv.Itoa(cur)]
 	if uploadUrl == "" {
 		return fmt.Errorf("upload url is empty, s3PreSignedUrls: %+v", s3PreSignedUrls)
@@ -145,6 +151,7 @@ func (d *Pan123) uploadS3Chunk(ctx context.Context, upReq *UploadResp, s3PreSign
 		}
 		s3PreSignedUrls.Data.PreSignedUrls = newS3PreSignedUrls.Data.PreSignedUrls
 		// retry
+		reader.Seek(0, io.SeekStart)
 		return d.uploadS3Chunk(ctx, upReq, s3PreSignedUrls, cur, end, reader, curSize, true, getS3UploadUrl)
 	}
 	if res.StatusCode != http.StatusOK {

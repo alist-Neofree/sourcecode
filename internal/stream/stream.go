@@ -128,15 +128,17 @@ func (f *FileStream) RangeRead(httpRange http_range.Range) (io.Reader, error) {
 	if f.tmpFile == nil {
 		if httpRange.Start == 0 && httpRange.Length <= InMemoryBufMaxSizeBytes && f.peekBuff == nil {
 			bufSize := utils.Min(httpRange.Length, f.GetSize())
-			newBuf := bytes.NewBuffer(make([]byte, 0, bufSize))
-			n, err := utils.CopyWithBufferN(newBuf, f.Reader, bufSize)
+			// 使用bytes.Buffer作为io.CopyBuffer的写入对象，CopyBuffer会调用Buffer.ReadFrom
+			// 即使被写入的数据量与Buffer.Cap一致，Buffer也会扩大
+			buf := make([]byte, bufSize)
+			n, err := io.ReadFull(f.Reader, buf)
+			if err == io.ErrUnexpectedEOF {
+				return nil, fmt.Errorf("stream RangeRead did not get all data in peek, expect =%d ,actual =%d", bufSize, n)
+			}
 			if err != nil {
 				return nil, err
 			}
-			if n != bufSize {
-				return nil, fmt.Errorf("stream RangeRead did not get all data in peek, expect =%d ,actual =%d", bufSize, n)
-			}
-			f.peekBuff = bytes.NewReader(newBuf.Bytes())
+			f.peekBuff = bytes.NewReader(buf)
 			f.Reader = io.MultiReader(f.peekBuff, f.Reader)
 			return io.NewSectionReader(f.peekBuff, httpRange.Start, httpRange.Length), nil
 		} else {

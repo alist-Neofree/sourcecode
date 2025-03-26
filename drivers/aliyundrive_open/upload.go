@@ -1,7 +1,6 @@
 package aliyundrive_open
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -132,16 +131,19 @@ func (d *AliyundriveOpen) calProofCode(stream model.FileStreamer) (string, error
 		return "", err
 	}
 	length := proofRange.End - proofRange.Start
-	buf := bytes.NewBuffer(make([]byte, 0, length))
 	reader, err := stream.RangeRead(http_range.Range{Start: proofRange.Start, Length: length})
 	if err != nil {
 		return "", err
 	}
-	_, err = utils.CopyWithBufferN(buf, reader, length)
+	buf := make([]byte, length)
+	n, err := io.ReadFull(reader, buf)
+	if err == io.ErrUnexpectedEOF {
+		return "", fmt.Errorf("can't read data, expected=%d, got=%d", len(buf), n)
+	}
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+	return base64.StdEncoding.EncodeToString(buf), nil
 }
 
 func (d *AliyundriveOpen) upload(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
