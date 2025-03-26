@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"strconv"
 
@@ -70,9 +69,16 @@ func (d *Pan123) completeS3(ctx context.Context, upReq *UploadResp, file model.F
 }
 
 func (d *Pan123) newUpload(ctx context.Context, upReq *UploadResp, file model.FileStreamer, up driver.UpdateProgress) error {
-	chunkSize := int64(1024 * 1024 * 16)
+	chunkSize := int64(16 * utils.MB)
 	// fetch s3 pre signed urls
-	chunkCount := int(math.Ceil(float64(file.GetSize()) / float64(chunkSize)))
+	size := file.GetSize()
+	chunkCount := int(size / chunkSize)
+	lastChunkSize := size % chunkSize
+	if lastChunkSize > 0 {
+		chunkCount++
+	} else {
+		lastChunkSize = chunkSize
+	}
 	// only 1 batch is allowed
 	isMultipart := chunkCount > 1
 	batchSize := 1
@@ -87,10 +93,7 @@ func (d *Pan123) newUpload(ctx context.Context, upReq *UploadResp, file model.Fi
 			return ctx.Err()
 		}
 		start := i
-		end := i + batchSize
-		if end > chunkCount+1 {
-			end = chunkCount + 1
-		}
+		end := min(i+batchSize, chunkCount+1)
 		s3PreSignedUrls, err := getS3UploadUrl(ctx, upReq, start, end)
 		if err != nil {
 			return err
@@ -100,11 +103,10 @@ func (d *Pan123) newUpload(ctx context.Context, upReq *UploadResp, file model.Fi
 			if utils.IsCanceled(ctx) {
 				return ctx.Err()
 			}
-			curSize := chunkSize
 			if j == chunkCount {
-				curSize = file.GetSize() - (int64(chunkCount)-1)*chunkSize
+				chunkSize = lastChunkSize
 			}
-			err = d.uploadS3Chunk(ctx, upReq, s3PreSignedUrls, j, end, io.LimitReader(limited, chunkSize), curSize, false, getS3UploadUrl)
+			err = d.uploadS3Chunk(ctx, upReq, s3PreSignedUrls, j, end, io.LimitReader(limited, chunkSize), chunkSize, false, getS3UploadUrl)
 			if err != nil {
 				return err
 			}
