@@ -102,11 +102,12 @@ func GetArchiveToolAndStream(ctx context.Context, storage driver.Driver, path st
 		dir := stdpath.Dir(path)
 		for {
 			p := stdpath.Join(dir, baseName+fmt.Sprintf(partExt, index))
-			l, _, err = Link(ctx, storage, p, args)
+			var o model.Obj
+			l, o, err = Link(ctx, storage, p, args)
 			if err != nil {
 				break
 			}
-			ss, err = stream.NewSeekableStream(stream.FileStream{Ctx: ctx, Obj: obj}, l)
+			ss, err = stream.NewSeekableStream(stream.FileStream{Ctx: ctx, Obj: o}, l)
 			if err != nil {
 				if l.MFile != nil {
 					_ = l.MFile.Close()

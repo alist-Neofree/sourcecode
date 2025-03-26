@@ -8,6 +8,7 @@ import (
 
 	"github.com/alist-org/alist/v3/internal/archive/tool"
 	"github.com/alist-org/alist/v3/internal/errs"
+	"github.com/alist-org/alist/v3/internal/stream"
 	"github.com/saintfish/chardet"
 	"github.com/yeka/zip"
 	"golang.org/x/text/encoding"
@@ -63,6 +64,14 @@ func (f *WrapFile) IsEncrypted() bool {
 
 func (f *WrapFile) SetPassword(password string) {
 	f.f.SetPassword(password)
+}
+
+func getReader(ss []*stream.SeekableStream) (*zip.Reader, error) {
+	reader, err := stream.NewMultiReaderAt(ss)
+	if err != nil {
+		return nil, err
+	}
+	return zip.NewReader(reader, reader.Size())
 }
 
 func filterPassword(err error) error {
