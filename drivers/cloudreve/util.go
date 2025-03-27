@@ -316,7 +316,7 @@ func (d *Cloudreve) upOneDrive(ctx context.Context, stream model.FileStreamer, u
 func (d *Cloudreve) upS3(ctx context.Context, stream model.FileStreamer, u UploadInfo, up driver.UpdateProgress) error {
 	var finish int64 = 0
 	var chunk int = 0
-	etags := make([]string, len(u.UploadURLs)-1)
+	var etags []string
 	DEFAULT := int64(u.ChunkSize)
 	for finish < stream.GetSize() {
 		if utils.IsCanceled(ctx) {
