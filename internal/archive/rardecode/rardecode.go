@@ -18,8 +18,10 @@ func (RarDecoder) AcceptedExtensions() []string {
 	return []string{".rar"}
 }
 
-func (RarDecoder) AcceptedMultipartExtensions() []string {
-	return []string{".part%d.rar"}
+func (RarDecoder) AcceptedMultipartExtensions() map[string]tool.MultipartExtension {
+	return map[string]tool.MultipartExtension{
+		".part1.rar": {".part%d.rar", 2},
+	}
 }
 
 func (RarDecoder) GetMeta(ss []*stream.SeekableStream, args model.ArchiveArgs) (model.ArchiveMeta, error) {

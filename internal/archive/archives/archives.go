@@ -22,8 +22,8 @@ func (Archives) AcceptedExtensions() []string {
 	}
 }
 
-func (Archives) AcceptedMultipartExtensions() []string {
-	return []string{}
+func (Archives) AcceptedMultipartExtensions() map[string]tool.MultipartExtension {
+	return map[string]tool.MultipartExtension{}
 }
 
 func (Archives) GetMeta(ss []*stream.SeekableStream, args model.ArchiveArgs) (model.ArchiveMeta, error) {

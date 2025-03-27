@@ -15,11 +15,14 @@ type Zip struct {
 }
 
 func (Zip) AcceptedExtensions() []string {
-	return []string{".zip"}
+	return []string{}
 }
 
-func (Zip) AcceptedMultipartExtensions() []string {
-	return []string{".zip.%.3d"}
+func (Zip) AcceptedMultipartExtensions() map[string]tool.MultipartExtension {
+	return map[string]tool.MultipartExtension{
+		".zip":     {".z%.2d", 1},
+		".zip.001": {".zip.%.3d", 2},
+	}
 }
 
 func (Zip) GetMeta(ss []*stream.SeekableStream, args model.ArchiveArgs) (model.ArchiveMeta, error) {

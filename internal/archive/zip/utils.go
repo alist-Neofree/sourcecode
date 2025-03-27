@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"io/fs"
+	stdpath "path"
 	"strings"
 
 	"github.com/alist-org/alist/v3/internal/archive/tool"
@@ -67,6 +68,10 @@ func (f *WrapFile) SetPassword(password string) {
 }
 
 func getReader(ss []*stream.SeekableStream) (*zip.Reader, error) {
+	if len(ss) > 1 && stdpath.Ext(ss[1].GetName()) == ".z01" {
+		// FIXME: Incorrect parsing method for standard multipart zip format
+		ss = append(ss[1:], ss[0])
+	}
 	reader, err := stream.NewMultiReaderAt(ss)
 	if err != nil {
 		return nil, err

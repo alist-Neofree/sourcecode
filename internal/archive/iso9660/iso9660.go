@@ -18,8 +18,8 @@ func (ISO9660) AcceptedExtensions() []string {
 	return []string{".iso"}
 }
 
-func (ISO9660) AcceptedMultipartExtensions() []string {
-	return []string{}
+func (ISO9660) AcceptedMultipartExtensions() map[string]tool.MultipartExtension {
+	return map[string]tool.MultipartExtension{}
 }
 
 func (ISO9660) GetMeta(ss []*stream.SeekableStream, args model.ArchiveArgs) (model.ArchiveMeta, error) {

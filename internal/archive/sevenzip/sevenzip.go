@@ -16,8 +16,10 @@ func (SevenZip) AcceptedExtensions() []string {
 	return []string{".7z"}
 }
 
-func (SevenZip) AcceptedMultipartExtensions() []string {
-	return []string{".7z.%.3d"}
+func (SevenZip) AcceptedMultipartExtensions() map[string]tool.MultipartExtension {
+	return map[string]tool.MultipartExtension{
+		".7z.001": {".7z.%.3d", 2},
+	}
 }
 
 func (SevenZip) GetMeta(ss []*stream.SeekableStream, args model.ArchiveArgs) (model.ArchiveMeta, error) {
