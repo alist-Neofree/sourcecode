@@ -111,8 +111,8 @@ func (d *IPFS) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 	if d.Mode != "mfs" {
 		return fmt.Errorf("only write in mfs mode")
 	}
-	newFileName := filepath.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath()))
-	return d.sh.FilesCp(ctx, srcObj.GetPath(), newFileName)
+	dstPath := filepath.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath()))
+	return d.sh.FilesCp(ctx, srcObj.GetPath(), dstPath)
 }
 
 func (d *IPFS) Remove(ctx context.Context, obj model.Obj) error {
