@@ -532,7 +532,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			part++
 		}
 		partInfos := make([]PartInfo, 0, part)
-		for i := range part {
+		for i := int64(0); i < part; i++ {
 			if utils.IsCanceled(ctx) {
 				return ctx.Err()
 			}
@@ -778,7 +778,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			part++
 		}
 		rateLimited := driver.NewLimitedUploadStream(ctx, stream)
-		for i := range part {
+		for i := int64(0); i < part; i++ {
 			if utils.IsCanceled(ctx) {
 				return ctx.Err()
 			}

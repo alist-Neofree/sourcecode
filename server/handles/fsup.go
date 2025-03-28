@@ -93,7 +93,7 @@ func FsStream(c *gin.Context) {
 		return
 	}
 	if t == nil {
-		if n, _ := c.Request.Body.Read([]byte{0}); n == 1 {
+		if n, _ := io.ReadFull(c.Request.Body, []byte{0}); n == 1 {
 			_, _ = utils.CopyWithBuffer(io.Discard, c.Request.Body)
 		}
 		common.SuccessResp(c)

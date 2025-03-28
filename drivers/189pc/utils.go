@@ -639,10 +639,10 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 	//step.1 优先计算所需信息
 	byteSize := sliceSize
 	fileMd5 := utils.MD5.NewFunc()
-	silceMd5 := utils.MD5.NewFunc()
-	silceMd5Hexs := make([]string, 0, count)
+	sliceMd5 := utils.MD5.NewFunc()
+	sliceMd5Hexs := make([]string, 0, count)
 	partInfos := make([]string, 0, count)
-	writers := []io.Writer{fileMd5, silceMd5}
+	writers := []io.Writer{fileMd5, sliceMd5}
 	if tmpF != nil {
 		writers = append(writers, tmpF)
 	}
@@ -661,10 +661,10 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 		if err != nil && err != io.EOF {
 			return nil, err
 		}
-		md5Byte := silceMd5.Sum(nil)
-		silceMd5Hexs = append(silceMd5Hexs, strings.ToUpper(hex.EncodeToString(md5Byte)))
+		md5Byte := sliceMd5.Sum(nil)
+		sliceMd5Hexs = append(sliceMd5Hexs, strings.ToUpper(hex.EncodeToString(md5Byte)))
 		partInfos = append(partInfos, fmt.Sprint(i, "-", base64.StdEncoding.EncodeToString(md5Byte)))
-		silceMd5.Reset()
+		sliceMd5.Reset()
 	}
 
 	if tmpF != nil {
@@ -680,7 +680,7 @@ func (y *Cloud189PC) FastUpload(ctx context.Context, dstDir model.Obj, file mode
 	fileMd5Hex := strings.ToUpper(hex.EncodeToString(fileMd5.Sum(nil)))
 	sliceMd5Hex := fileMd5Hex
 	if size > sliceSize {
-		sliceMd5Hex = strings.ToUpper(utils.GetMD5EncodeStr(strings.Join(silceMd5Hexs, "\n")))
+		sliceMd5Hex = strings.ToUpper(utils.GetMD5EncodeStr(strings.Join(sliceMd5Hexs, "\n")))
 	}
 
 	fullUrl := UPLOAD_URL

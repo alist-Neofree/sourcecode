@@ -129,11 +129,11 @@ func (f *FileStream) RangeRead(httpRange http_range.Range) (io.Reader, error) {
 			// 即使被写入的数据量与Buffer.Cap一致，Buffer也会扩大
 			buf := make([]byte, bufSize)
 			n, err := io.ReadFull(f.Reader, buf)
-			if err == io.ErrUnexpectedEOF {
-				return nil, fmt.Errorf("stream RangeRead did not get all data in peek, expect =%d ,actual =%d", bufSize, n)
-			}
 			if err != nil {
 				return nil, err
+			}
+			if n != int(bufSize) {
+				return nil, fmt.Errorf("stream RangeRead did not get all data in peek, expect =%d ,actual =%d", bufSize, n)
 			}
 			f.peekBuff = bytes.NewReader(buf)
 			f.Reader = io.MultiReader(f.peekBuff, f.Reader)
