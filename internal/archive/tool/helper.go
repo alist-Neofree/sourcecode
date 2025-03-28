@@ -29,7 +29,6 @@ type ArchiveReader interface {
 func GenerateMetaTreeFromFolderTraversal(r ArchiveReader) (bool, []model.ObjTree) {
 	encrypted := false
 	dirMap := make(map[string]*model.ObjectTree)
-	dirMap["."] = &model.ObjectTree{}
 	for _, file := range r.Files() {
 		if encrypt, ok := file.(CanEncryptSubFile); ok && encrypt.IsEncrypted() {
 			encrypted = true
@@ -67,7 +66,6 @@ func GenerateMetaTreeFromFolderTraversal(r ArchiveReader) (bool, []model.ObjTree
 			dirObj.IsFolder = true
 			dirObj.Name = stdpath.Base(dir)
 			dirObj.Modified = file.FileInfo().ModTime()
-			dirObj.Children = make([]model.ObjTree, 0)
 		}
 		if isNewFolder {
 			// 将 文件夹 添加到 父文件夹
