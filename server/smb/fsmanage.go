@@ -32,7 +32,7 @@ func Mkdir(ctx context.Context, path string) (model.Obj, error) {
 	if err = fs.MakeDir(ctx, reqPath); err != nil {
 		return nil, err
 	}
-	return fs.Get(ctx, path, &fs.GetArgs{})
+	return fs.Get(ctx, reqPath, &fs.GetArgs{})
 }
 
 func Remove(ctx context.Context, path string) error {

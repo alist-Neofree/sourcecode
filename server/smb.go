@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"github.com/alist-org/alist/v3/internal/errs"
 
 	smb2 "github.com/KirCute/go-smb2-alist/server"
 	"github.com/KirCute/go-smb2-alist/vfs"
@@ -60,11 +61,15 @@ func GetUserFileSystem(user string) (map[string]vfs.VFSFileSystem, error) {
 		return nil, err
 	}
 	if !userObj.CanSMBAccess() { // For allow guest case
-		return nil, err
+		return nil, errs.PermissionDenied
 	}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, "user", userObj)
+	fs, err := smb.NewVFS(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]vfs.VFSFileSystem{
-		conf.Conf.SMB.ShareName: smb.NewVFS(ctx),
+		conf.Conf.SMB.ShareName: fs,
 	}, nil
 }

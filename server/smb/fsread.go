@@ -2,7 +2,6 @@ package smb
 
 import (
 	"context"
-	"github.com/alist-org/alist/v3/pkg/utils"
 	"hash/fnv"
 	"os"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/op"
 	"github.com/alist-org/alist/v3/internal/stream"
+	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/pkg/errors"
 )
@@ -24,7 +24,7 @@ type readingFile struct {
 }
 
 func newRead(path string, obj model.Obj) *readingFile {
-	return &readingFile{path: path, obj: obj, s: nil}
+	return &readingFile{path: utils.FixAndCleanPath(path), obj: obj, s: nil}
 }
 
 func (f *readingFile) initDownload(ctx context.Context) error {
@@ -35,18 +35,22 @@ func (f *readingFile) initDownload(ctx context.Context) error {
 		return errs.NotFile
 	}
 	user := ctx.Value("user").(*model.User)
-	meta, err := op.GetNearestMeta(f.path)
+	reqPath, err := user.JoinPath(f.path)
+	if err != nil {
+		return err
+	}
+	meta, err := op.GetNearestMeta(reqPath)
 	if err != nil {
 		if !errors.Is(errors.Cause(err), errs.MetaNotFound) {
 			return err
 		}
 	}
 	ctx = context.WithValue(ctx, "meta", meta)
-	if !common.CanAccess(user, meta, f.path, "") {
+	if !common.CanAccess(user, meta, reqPath, "") {
 		return errs.PermissionDenied
 	}
 
-	link, obj, err := fs.Link(ctx, f.path, model.LinkArgs{})
+	link, obj, err := fs.Link(ctx, reqPath, model.LinkArgs{})
 	if err != nil {
 		return err
 	}
@@ -142,7 +146,7 @@ func MakeFileAttribute(file *os.File) (*vfs.Attributes, error) {
 	a.SetInodeNumber(uint64(file.Fd())) // 用fd没什么依据，纯随便给了个不会冲突的整数
 	stat, err := file.Stat()
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 	a.SetSizeBytes(uint64(stat.Size()))
 	a.SetUnixMode(uint32(stat.Mode()))
@@ -161,7 +165,7 @@ func MakeObjAttribute(obj model.Obj) (*vfs.Attributes, error) {
 	h := fnv.New64()
 	_, err := h.Write([]byte(obj.GetPath()))
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 	a.SetInodeNumber(h.Sum64())
 	a.SetSizeBytes(uint64(obj.GetSize()))

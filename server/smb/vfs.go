@@ -2,47 +2,68 @@ package smb
 
 import (
 	"context"
-	"errors"
 	"io"
 	"os"
 	stdpath "path"
 	"sync"
-	"sync/atomic"
 
 	"github.com/KirCute/go-smb2-alist/vfs"
 	"github.com/alist-org/alist/v3/internal/errs"
+	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/stream"
+	"github.com/alist-org/alist/v3/internal/task"
+	"github.com/alist-org/alist/v3/pkg/utils"
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
+	"github.com/xhofe/tache"
 )
 
 type VFS struct {
 	ctx           context.Context
-	openedPath    sync.Map // VfsHandle: *readingFile
-	openedTmpFile sync.Map // VfsHandle: *writingFile
-	nextHandle    atomic.Uint64
+	openedPath    map[vfs.VfsHandle]*readingFile
+	openedTmpFile map[vfs.VfsHandle]*writingFile
+	uploadingFile map[string]task.TaskExtensionInfo
+	nextHandle    vfs.VfsHandle
+	mutex         sync.RWMutex
 }
 
-func NewVFS(ctx context.Context) *VFS {
-	return &VFS{
+func NewVFS(ctx context.Context) (vfs.VFSFileSystem, error) {
+	fs := &VFS{
 		ctx:           ctx,
-		openedPath:    sync.Map{},
-		openedTmpFile: sync.Map{},
-		nextHandle:    atomic.Uint64{},
+		openedPath:    make(map[vfs.VfsHandle]*readingFile),
+		openedTmpFile: make(map[vfs.VfsHandle]*writingFile),
+		uploadingFile: make(map[string]task.TaskExtensionInfo),
+		nextHandle:    vfs.VfsHandle(1),
+		mutex:         sync.RWMutex{},
 	}
+	root, err := FsGet(ctx, ".")
+	if err != nil {
+		return nil, err
+	}
+	fs.openedPath[vfs.VfsHandle(0)] = newRead(".", root)
+	user := ctx.Value("user").(*model.User)
+	log.Infof("User %s logged in the SMB endpoint", user.Username)
+	return &VFSWrapper{fs: fs, user: user.Username}, nil
 }
 
 func (fs *VFS) GetAttr(handle vfs.VfsHandle) (*vfs.Attributes, error) {
-	if tmp, ok := fs.openedTmpFile.Load(handle); ok {
-		return MakeFileAttribute(tmp.(*writingFile).f)
+	fs.mutex.RLock()
+	defer fs.mutex.RUnlock()
+	if tmp, ok := fs.openedTmpFile[handle]; ok {
+		return MakeFileAttribute(tmp.f)
 	}
-	if r, ok := fs.openedPath.Load(handle); ok {
-		return MakeObjAttribute(r.(*readingFile).obj)
+	if r, ok := fs.openedPath[handle]; ok {
+		return MakeObjAttribute(r.obj)
 	}
-	return nil, errors.New("bad handle")
+	return nil, ErrBadHandle
 }
 
 func (fs *VFS) Flush(handle vfs.VfsHandle) error {
-	if tmp, ok := fs.openedTmpFile.Load(handle); ok {
-		return tmp.(*writingFile).f.Sync()
+	fs.mutex.RLock()
+	tmp, ok := fs.openedTmpFile[handle]
+	fs.mutex.RUnlock()
+	if ok {
+		return tmp.f.Sync()
 	}
 	return nil
 }
@@ -50,64 +71,138 @@ func (fs *VFS) Flush(handle vfs.VfsHandle) error {
 func (fs *VFS) newUpload(path string) (vfs.VfsHandle, error) {
 	f, err := newUpload(fs.ctx, path)
 	if err != nil {
-		return 0, err
+		return 0, errors.WithStack(err)
 	}
-	handle := vfs.VfsHandle(fs.nextHandle.Add(1))
-	fs.openedTmpFile.Store(handle, f)
+	fs.mutex.Lock()
+	defer fs.mutex.Unlock()
+	handle := fs.nextHandle
+	fs.nextHandle++
+	fs.openedTmpFile[handle] = f
 	return handle, nil
 }
 
 func (fs *VFS) Open(path string, flags int, _ int) (vfs.VfsHandle, error) {
 	if (flags & os.O_APPEND) != 0 {
-		return 0, errs.NotSupport
+		return 0, errors.WithStack(errs.NotSupport)
+	}
+	path = utils.FixAndCleanPath(path)
+	fs.mutex.RLock()
+	for h, tmp := range fs.openedTmpFile {
+		if tmp.path == path {
+			fs.mutex.RUnlock()
+			return h, nil
+		}
+	}
+	t, ok := fs.uploadingFile[path]
+	fs.mutex.RUnlock()
+	if ok {
+		if t.GetState() == tache.StateSucceeded {
+			fs.mutex.Lock()
+			delete(fs.uploadingFile, path)
+			fs.mutex.Unlock()
+		} else if t.GetState() == tache.StateFailed || t.GetState() == tache.StateCanceled {
+			fs.mutex.Lock()
+			delete(fs.uploadingFile, path)
+			fs.mutex.Unlock()
+			return 0, errors.WithStack(os.ErrNotExist)
+		} else {
+			return 0, errors.WithStack(os.ErrPermission)
+		}
 	}
 	obj, err := FsGet(fs.ctx, path)
 	if errors.Is(err, errs.ObjectNotFound) {
 		if (flags&os.O_RDWR) == 0 || (flags&os.O_CREATE) == 0 {
-			return 0, os.ErrNotExist
+			return 0, errors.WithStack(os.ErrNotExist)
 		}
 		return fs.newUpload(path)
 	} else if err == nil {
 		if (flags&os.O_CREATE) != 0 && (flags&os.O_EXCL) != 0 {
-			return 0, os.ErrExist
+			return 0, errors.WithStack(os.ErrExist)
 		}
 		if (flags & os.O_RDWR) != 0 {
 			if (flags&os.O_CREATE) != 0 && (flags&os.O_TRUNC) != 0 {
 				return fs.newUpload(path)
 			}
-			return 0, errs.NotSupport
+			return 0, errors.WithStack(errs.NotSupport)
 		}
-		handle := vfs.VfsHandle(fs.nextHandle.Add(1))
-		fs.openedPath.Store(handle, newRead(path, obj))
+		fs.mutex.Lock()
+		defer fs.mutex.Unlock()
+		handle := fs.nextHandle
+		fs.nextHandle++
+		fs.openedPath[handle] = newRead(path, obj)
 		return handle, nil
 	}
-	return 0, err
+	return 0, errors.WithStack(err)
 }
 
 func (fs *VFS) Close(handle vfs.VfsHandle) error {
-	if tmp, ok := fs.openedTmpFile.Load(handle); ok {
-		err := tmp.(*writingFile).close(fs.ctx)
-		fs.openedTmpFile.Delete(handle)
-		return err
+	if handle == 0 {
+		return ErrBadHandle
 	}
-	if r, ok := fs.openedPath.Load(handle); ok {
-		err := r.(*readingFile).Close()
-		fs.openedPath.Delete(handle)
-		return err
+	fs.mutex.RLock()
+	tmp, ok := fs.openedTmpFile[handle]
+	fs.mutex.RUnlock()
+	if ok {
+		tsk, err := tmp.close(fs.ctx)
+		fs.mutex.Lock()
+		delete(fs.openedTmpFile, handle)
+		if tsk != nil {
+			fs.uploadingFile[tmp.path] = tsk
+		}
+		fs.mutex.Unlock()
+		return errors.WithStack(err)
 	}
-	return errors.New("bad handle")
+	fs.mutex.RLock()
+	r, ok := fs.openedPath[handle]
+	fs.mutex.RUnlock()
+	if ok {
+		err := r.Close()
+		fs.mutex.Lock()
+		delete(fs.openedPath, handle)
+		fs.mutex.Unlock()
+		return errors.WithStack(err)
+	}
+	return ErrBadHandle
 }
 
 func (fs *VFS) Lookup(handle vfs.VfsHandle, name string) (*vfs.Attributes, error) {
+	fs.mutex.RLock()
 	var p *readingFile
-	if r, ok := fs.openedPath.Load(handle); ok {
-		p = r.(*readingFile)
-	} else {
-		return nil, errors.New("bad handle")
+	var ok bool
+	if p, ok = fs.openedPath[handle]; !ok {
+		fs.mutex.RUnlock()
+		return nil, ErrBadHandle
 	}
-	obj, err := FsGet(fs.ctx, stdpath.Join(p.path, name))
+	if name == "/" {
+		fs.mutex.RUnlock()
+		return MakeObjAttribute(p.obj)
+	}
+	path := utils.FixAndCleanPath(stdpath.Join(p.path, name))
+	for _, tmp := range fs.openedTmpFile {
+		if tmp.path == path {
+			fs.mutex.RUnlock()
+			return MakeFileAttribute(tmp.f)
+		}
+	}
+	t, ok := fs.uploadingFile[path]
+	fs.mutex.RUnlock()
+	if ok {
+		if t.GetState() == tache.StateSucceeded {
+			fs.mutex.Lock()
+			delete(fs.uploadingFile, path)
+			fs.mutex.Unlock()
+		} else if t.GetState() == tache.StateFailed || t.GetState() == tache.StateCanceled {
+			fs.mutex.Lock()
+			delete(fs.uploadingFile, path)
+			fs.mutex.Unlock()
+			return nil, errors.WithStack(os.ErrNotExist)
+		} else {
+			return MakeTaskAttribute(t)
+		}
+	}
+	obj, err := FsGet(fs.ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 	return MakeObjAttribute(obj)
 }
@@ -121,26 +216,32 @@ func (fs *VFS) Mkdir(path string, _ int) (*vfs.Attributes, error) {
 }
 
 func (fs *VFS) Read(handle vfs.VfsHandle, buf []byte, offset uint64, _ int) (n int, err error) {
-	if tmp, ok := fs.openedTmpFile.Load(handle); ok {
-		n, err = tmp.(*writingFile).f.ReadAt(buf, int64(offset))
-	} else if r, ok := fs.openedPath.Load(handle); ok {
-		rf := r.(*readingFile)
-		err = rf.initDownload(fs.ctx)
+	fs.mutex.RLock()
+	if tmp, ok := fs.openedTmpFile[handle]; ok {
+		fs.mutex.RUnlock()
+		n, err = tmp.f.ReadAt(buf, int64(offset))
+	} else if r, ok := fs.openedPath[handle]; ok {
+		fs.mutex.RUnlock()
+		err = r.initDownload(fs.ctx)
 		if err == nil {
-			n, err = rf.s.ReadAt(buf, int64(offset))
+			n, err = r.s.ReadAt(buf, int64(offset))
 		}
 	} else {
-		err = errors.New("bad handle")
+		fs.mutex.RUnlock()
+		err = ErrBadHandle
 	}
 	_ = stream.ClientDownloadLimit.WaitN(fs.ctx, n)
 	return
 }
 
 func (fs *VFS) Write(handle vfs.VfsHandle, buf []byte, offset uint64, _ int) (n int, err error) {
-	if tmp, ok := fs.openedTmpFile.Load(handle); ok {
-		n, err = tmp.(*writingFile).f.WriteAt(buf, int64(offset))
+	fs.mutex.RLock()
+	tmp, ok := fs.openedTmpFile[handle]
+	fs.mutex.RUnlock()
+	if ok {
+		n, err = tmp.f.WriteAt(buf, int64(offset))
 	} else {
-		err = errors.New("bad handle")
+		err = ErrBadHandle
 	}
 	_ = stream.ClientUploadLimit.WaitN(fs.ctx, n)
 	return
@@ -151,17 +252,20 @@ func (fs *VFS) OpenDir(path string) (vfs.VfsHandle, error) {
 	if err != nil {
 		return 0, err
 	}
-	handle := vfs.VfsHandle(fs.nextHandle.Add(1))
-	fs.openedPath.Store(handle, newRead(path, obj))
+	fs.mutex.Lock()
+	defer fs.mutex.Unlock()
+	handle := fs.nextHandle
+	fs.nextHandle++
+	fs.openedPath[handle] = newRead(path, obj)
 	return handle, nil
 }
 
 func (fs *VFS) ReadDir(handle vfs.VfsHandle, pos int, _ int) ([]vfs.DirInfo, error) {
-	var p *readingFile
-	if r, ok := fs.openedPath.Load(handle); ok {
-		p = r.(*readingFile)
-	} else {
-		return nil, errors.New("bad handle")
+	fs.mutex.RLock()
+	p, ok := fs.openedPath[handle]
+	fs.mutex.RUnlock()
+	if !ok {
+		return nil, ErrBadHandle
 	}
 	if pos == 0 && p.dirRead {
 		return nil, io.EOF
@@ -171,23 +275,37 @@ func (fs *VFS) ReadDir(handle vfs.VfsHandle, pos int, _ int) ([]vfs.DirInfo, err
 }
 
 func (fs *VFS) Unlink(handle vfs.VfsHandle) error {
-	if r, ok := fs.openedPath.Load(handle); ok {
-		rf := r.(*readingFile)
-		_ = rf.Close()
-		fs.openedPath.Delete(handle)
-		return Remove(fs.ctx, rf.path)
+	if handle == 0 {
+		return ErrBadHandle
 	}
-	return errors.New("bad handle")
+	fs.mutex.RLock()
+	r, ok := fs.openedPath[handle]
+	fs.mutex.RUnlock()
+	if ok {
+		_ = r.Close()
+		fs.mutex.Lock()
+		delete(fs.openedPath, handle)
+		fs.mutex.Unlock()
+		return Remove(fs.ctx, r.path)
+	}
+	return ErrBadHandle
 }
 
 func (fs *VFS) Rename(handle vfs.VfsHandle, to string, _ int) error {
-	if r, ok := fs.openedPath.Load(handle); ok {
-		rf := r.(*readingFile)
-		_ = rf.Close()
-		fs.openedPath.Delete(handle)
-		return Rename(fs.ctx, rf.path, to)
+	if handle == 0 {
+		return ErrBadHandle
 	}
-	return errors.New("bad handle")
+	fs.mutex.RLock()
+	r, ok := fs.openedPath[handle]
+	fs.mutex.RUnlock()
+	if ok {
+		_ = r.Close()
+		fs.mutex.Lock()
+		delete(fs.openedPath, handle)
+		fs.mutex.Unlock()
+		return Rename(fs.ctx, r.path, to)
+	}
+	return ErrBadHandle
 }
 
 func (fs *VFS) StatFS(vfs.VfsHandle) (*vfs.FSAttributes, error) {
@@ -195,7 +313,7 @@ func (fs *VFS) StatFS(vfs.VfsHandle) (*vfs.FSAttributes, error) {
 }
 
 func (fs *VFS) SetAttr(vfs.VfsHandle, *vfs.Attributes) (*vfs.Attributes, error) {
-	return nil, errs.NotSupport
+	return nil, nil
 }
 
 func (fs *VFS) FSync(vfs.VfsHandle) error {
