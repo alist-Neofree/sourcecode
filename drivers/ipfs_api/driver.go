@@ -86,9 +86,6 @@ func (d *IPFS) MakeDir(ctx context.Context, parentDir model.Obj, dirName string)
 		return fmt.Errorf("only write in mfs mode")
 	}
 	path := parentDir.GetPath()
-	if path[len(path):] != "/" {
-		path += "/"
-	}
 	return d.sh.FilesMkdir(ctx, filepath.Join(path, dirName))
 }
 
