@@ -741,14 +741,20 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 				break
 			}
 		}
+		var reportSize int64
+		if d.ReportRealSize {
+			reportSize = stream.GetSize()
+		} else {
+			reportSize = 0
+		}
 		data := base.Json{
 			"manualRename": 2,
 			"operation":    0,
 			"fileCount":    1,
-			"totalSize":    0, // 去除上传大小限制
+			"totalSize":    reportSize,
 			"uploadContentList": []base.Json{{
 				"contentName": stream.GetName(),
-				"contentSize": 0, // 去除上传大小限制
+				"contentSize": reportSize,
 				// "digest": "5a3231986ce7a6b46e408612d385bafa"
 			}},
 			"parentCatalogID": dstDir.GetID(),
@@ -766,10 +772,10 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 				"operation":    0,
 				"path":         path.Join(dstDir.GetPath(), dstDir.GetID()),
 				"seqNo":        random.String(32), //序列号不能为空
-				"totalSize":    0,
+				"totalSize":    reportSize,
 				"uploadContentList": []base.Json{{
 					"contentName": stream.GetName(),
-					"contentSize": 0,
+					"contentSize": reportSize,
 					// "digest": "5a3231986ce7a6b46e408612d385bafa"
 				}},
 			})
