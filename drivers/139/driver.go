@@ -3,6 +3,7 @@ package _139
 import (
 	"context"
 	"encoding/base64"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -779,6 +780,9 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		if err != nil {
 			return err
 		}
+		if resp.Data.Result.ResultCode != "0" {
+			return fmt.Errorf("get file upload url failed with result code: %s, message: %s", resp.Data.Result.ResultCode, resp.Data.Result.ResultDesc)
+		}
 
 		// Progress
 		p := driver.NewProgress(stream.GetSize(), up)
@@ -820,13 +824,23 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			if err != nil {
 				return err
 			}
-			_ = res.Body.Close()
-			log.Debugf("%+v", res)
+			defer res.Body.Close()
 			if res.StatusCode != http.StatusOK {
 				return fmt.Errorf("unexpected status code: %d", res.StatusCode)
 			}
+			bodyBytes, err := io.ReadAll(res.Body)
+			if err != nil {
+				return fmt.Errorf("error reading response body: %v", err)
+			}
+			var result InterLayerUploadResult
+			err = xml.Unmarshal(bodyBytes, &result)
+			if err != nil {
+				return fmt.Errorf("error parsing XML: %v", err)
+			}
+			if result.ResultCode != 0 {
+				return fmt.Errorf("upload failed with result code: %d, message: %s", result.ResultCode, result.Msg)
+			}
 		}
-
 		return nil
 	default:
 		return errs.NotImplement
