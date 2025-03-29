@@ -830,8 +830,8 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			if err != nil {
 				return err
 			}
-			defer res.Body.Close()
 			if res.StatusCode != http.StatusOK {
+				res.Body.Close()
 				return fmt.Errorf("unexpected status code: %d", res.StatusCode)
 			}
 			bodyBytes, err := io.ReadAll(res.Body)
