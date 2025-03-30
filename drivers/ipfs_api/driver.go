@@ -104,7 +104,7 @@ func (d *IPFS) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, e
 	if d.Mode != "mfs" {
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
-	d.sh.FilesRm(ctx, dstDir.GetPath(), true)
+	d.sh.FilesRm(ctx, filepath.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath())), true)
 	return &model.Object{ID: srcObj.GetID(), Name: srcObj.GetName(), Path: dstDir.GetPath(), Size: int64(srcObj.GetSize()), IsFolder: srcObj.IsDir()},
 		d.sh.FilesMv(ctx, srcObj.GetPath(), dstDir.GetPath())
 }
