@@ -104,6 +104,7 @@ func (d *IPFS) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, e
 	if d.Mode != "mfs" {
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
+	d.sh.FilesRm(ctx, dstDir.GetPath(), true)
 	return &model.Object{ID: srcObj.GetID(), Name: srcObj.GetName(), Path: dstDir.GetPath(), Size: int64(srcObj.GetSize()), IsFolder: srcObj.IsDir()},
 		d.sh.FilesMv(ctx, srcObj.GetPath(), dstDir.GetPath())
 }
@@ -113,6 +114,7 @@ func (d *IPFS) Rename(ctx context.Context, srcObj model.Obj, newName string) (mo
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
 	dstPath := filepath.Join(filepath.Dir(srcObj.GetPath()), newName)
+	d.sh.FilesRm(ctx, dstPath, true)
 	return &model.Object{ID: srcObj.GetID(), Name: newName, Path: dstPath, Size: int64(srcObj.GetSize()),
 		IsFolder: srcObj.IsDir()}, d.sh.FilesMv(ctx, srcObj.GetPath(), dstPath)
 }
@@ -122,8 +124,9 @@ func (d *IPFS) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, e
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
 	dstPath := filepath.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath()))
+	d.sh.FilesRm(ctx, dstPath, true)
 	return &model.Object{ID: srcObj.GetID(), Name: srcObj.GetName(), Path: dstPath, Size: int64(srcObj.GetSize()), IsFolder: srcObj.IsDir()},
-		d.sh.FilesCp(ctx, srcObj.GetPath(), dstPath, shell.FilesCp.Parents(true))
+		d.sh.FilesCp(ctx, filepath.Join("/ipfs/", srcObj.GetID()), dstPath, shell.FilesCp.Parents(true))
 }
 
 func (d *IPFS) Remove(ctx context.Context, obj model.Obj) error {
