@@ -104,8 +104,9 @@ func (d *IPFS) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, e
 	if d.Mode != "mfs" {
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
-	d.sh.FilesRm(ctx, filepath.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath())), true)
-	return &model.Object{ID: srcObj.GetID(), Name: srcObj.GetName(), Path: dstDir.GetPath(), Size: int64(srcObj.GetSize()), IsFolder: srcObj.IsDir()},
+	dstPath := filepath.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath()))
+	d.sh.FilesRm(ctx, dstPath, true)
+	return &model.Object{ID: srcObj.GetID(), Name: srcObj.GetName(), Path: dstPath, Size: int64(srcObj.GetSize()), IsFolder: srcObj.IsDir()},
 		d.sh.FilesMv(ctx, srcObj.GetPath(), dstDir.GetPath())
 }
 
@@ -147,13 +148,14 @@ func (d *IPFS) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer, 
 	if err != nil {
 		return nil, err
 	}
+	dstPath := filepath.Join(dstDir.GetPath(), s.GetName())
 	if s.GetExist() != nil {
-		d.sh.FilesRm(ctx, filepath.Join(dstDir.GetPath(), s.GetName()), true)
+		d.sh.FilesRm(ctx, dstPath, true)
 	}
-	err = d.sh.FilesCp(ctx, filepath.Join("/ipfs/", outHash), filepath.Join(dstDir.GetPath(), s.GetName()), shell.FilesCp.Parents(true))
+	err = d.sh.FilesCp(ctx, filepath.Join("/ipfs/", outHash), dstPath, shell.FilesCp.Parents(true))
 	gateurl := d.gateURL.JoinPath("/ipfs/", outHash)
 	gateurl.RawQuery = "filename=" + url.QueryEscape(s.GetName())
-	return &model.Object{ID: outHash, Name: s.GetName(), Path: filepath.Join(dstDir.GetPath(), s.GetName()), Size: int64(s.GetSize()), IsFolder: s.IsDir()}, err
+	return &model.Object{ID: outHash, Name: s.GetName(), Path: dstPath, Size: int64(s.GetSize()), IsFolder: s.IsDir()}, err
 }
 
 //func (d *Template) Other(ctx context.Context, args model.OtherArgs) (interface{}, error) {
