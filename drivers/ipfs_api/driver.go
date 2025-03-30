@@ -81,9 +81,6 @@ func (d *IPFS) Get(ctx context.Context, path string) (model.Obj, error) {
 	if err != nil {
 		return nil, err
 	}
-	if file.Type == "directory" {
-		return nil, fmt.Errorf("not a file")
-	}
 	return &model.Object{ID: file.Hash, Name: filepath.Base(path), Path: path, Size: int64(file.Size), IsFolder: file.Type == "directory"}, nil
 }
 
