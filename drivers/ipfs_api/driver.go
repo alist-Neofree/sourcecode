@@ -77,6 +77,9 @@ func (d *IPFS) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*
 }
 
 func (d *IPFS) Get(ctx context.Context, path string) (model.Obj, error) {
+	if d.Mode != "mfs" {
+		return nil, fmt.Errorf("only get path for mfs")
+	}
 	file, err := d.sh.FilesStat(ctx, path)
 	if err != nil {
 		return nil, err
