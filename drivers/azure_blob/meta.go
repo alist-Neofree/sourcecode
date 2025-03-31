@@ -6,11 +6,9 @@ import (
 )
 
 type Addition struct {
-	driver.RootPath
-	Name          string `json:"name" required:"true"`
-	Key           string `json:"key" required:"true"`
-	Endpoint      string `json:"endpoint" required:"true"`
-	Container     string `json:"container" required:"true"`
+	driver.RootID `required:"false" help:"the container name"`
+	AccessKey     string `json:"access_key" required:"true" help:"Azure Storage account key"`
+	Endpoint      string `json:"endpoint" required:"true" default:"https://<account_name>.blob.core.windows.net/"`
 	SignURLExpire int    `json:"sign_url_expire" type:"number" default:"4" help:"SAS URL expiration time in hours"`
 }
 
