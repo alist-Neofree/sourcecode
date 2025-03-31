@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,9 +25,9 @@ const (
 	// MaxRetries defines the maximum number of retry attempts for Azure operations
 	MaxRetries = 3
 	// RetryDelay defines the base delay between retries
-	RetryDelay = 1 * time.Second
+	RetryDelay = 3 * time.Second
 	// MaxBatchSize defines the maximum number of operations in a single batch request
-	MaxBatchSize = 256
+	MaxBatchSize = 128
 )
 
 // extractAccountName 从 Azure 存储 Endpoint 中提取账户名
@@ -132,21 +134,22 @@ func (d *AzureBlob) deleteFolder(ctx context.Context, prefix string) error {
 	prefix = ensureTrailingSlash(prefix)
 
 	// Get all blobs under the directory using flattenListBlobs
-	blobs, err := d.flattenListBlobs(ctx, prefix)
+	globs, err := d.flattenListBlobs(ctx, prefix)
 	if err != nil {
 		return fmt.Errorf("failed to list blobs for deletion: %w", err)
 	}
 
 	// If there are blobs in the directory, delete them
-	if len(blobs) > 0 {
+	if len(globs) > 0 {
 		// 分离文件和目录标记
 		var filePaths []string
 		var dirPaths []string
 
-		for _, blob := range blobs {
+		for _, blob := range globs {
 			blobName := *blob.Name
 			if isDirectory(blob) {
-				dirPaths = append(dirPaths, blobName)
+				// remove trailing slash for directory names
+				dirPaths = append(dirPaths, strings.TrimSuffix(blobName, "/"))
 			} else {
 				filePaths = append(filePaths, blobName)
 			}
@@ -154,58 +157,48 @@ func (d *AzureBlob) deleteFolder(ctx context.Context, prefix string) error {
 
 		// 先删除文件，再删除目录
 		if len(filePaths) > 0 {
-			// Extract blob paths for batch deletion
 			if err := d.batchDeleteBlobs(ctx, filePaths); err != nil {
 				return err
 			}
 		}
-		// Delete directory markers
 		if len(dirPaths) > 0 {
-			if err := d.batchDeleteBlobs(ctx, dirPaths); err != nil {
-				return err
+			// 按路径深度分组
+			depthMap := make(map[int][]string)
+			for _, dir := range dirPaths {
+				depth := strings.Count(dir, "/") // 计算目录深度
+				depthMap[depth] = append(depthMap[depth], dir)
+			}
+
+			// 按深度从大到小排序
+			var depths []int
+			for depth := range depthMap {
+				depths = append(depths, depth)
+			}
+			sort.Sort(sort.Reverse(sort.IntSlice(depths)))
+
+			// 按深度逐层批量删除
+			for _, depth := range depths {
+				batch := depthMap[depth]
+				if err := d.batchDeleteBlobs(ctx, batch); err != nil {
+					return err
+				}
 			}
 		}
-
-		// Always try to delete the directory marker itself
-		// This is important even if no blobs were found
-		path := strings.TrimSuffix(prefix, "/")
-		blobClient := d.containerClient.NewBlobClient(path)
-		_, err = blobClient.Delete(ctx, nil)
-
-		// Ignore not found errors for directories
-		var responseErr *azcore.ResponseError
-		if err != nil && errors.As(err, &responseErr) && responseErr.StatusCode == 404 {
-			return nil // Directory marker might not exist, which is OK
-		}
-
-		return err
 	}
 
-	// Always try to delete the directory marker itself
-	// This is important even if no blobs were found
-	path := strings.TrimSuffix(prefix, "/")
-	blobClient := d.containerClient.NewBlobClient(path)
-	_, err = blobClient.Delete(ctx, nil)
-
-	// Ignore not found errors for directories
-	var responseErr *azcore.ResponseError
-	if err != nil && errors.As(err, &responseErr) && responseErr.StatusCode == 404 {
-		return nil // Directory marker might not exist, which is OK
-	}
-
-	return err
+	// 最后删除目录标记本身
+	return d.deleteEmptyDirectory(ctx, prefix)
 }
 
 // deleteFile deletes a single file or blob with better error handling
 func (d *AzureBlob) deleteFile(ctx context.Context, path string, isDir bool) error {
 	blobClient := d.containerClient.NewBlobClient(path)
-
 	_, err := blobClient.Delete(ctx, nil)
-	// Ignore not found errors, especially for directories
-	if err != nil && isDir && isNotFoundError(err) {
-		return nil
+	if err != nil && !(isDir && isNotFoundError(err)) {
+		log.Printf("Error deleting blob [%s]: %v", path, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 // copyFile copies a single blob from source path to destination path
@@ -244,15 +237,19 @@ func (d *AzureBlob) createContainerIfNotExists(ctx context.Context, containerNam
 	return nil
 }
 
+// mkDir creates a virtual directory marker by uploading an empty blob with metadata.
 func (d *AzureBlob) mkDir(ctx context.Context, fullDirName string) error {
 	dirPath := ensureTrailingSlash(fullDirName)
 	blobClient := d.containerClient.NewBlockBlobClient(dirPath)
 
-	// upload an empty blob to create the directory marker
+	// Upload an empty blob with metadata indicating it's a directory
 	_, err := blobClient.Upload(ctx, struct {
 		*bytes.Reader
 		io.Closer
-	}{Reader: bytes.NewReader([]byte{}), Closer: io.NopCloser(nil)}, &blockblob.UploadOptions{
+	}{
+		Reader: bytes.NewReader([]byte{}),
+		Closer: io.NopCloser(nil),
+	}, &blockblob.UploadOptions{
 		Metadata: map[string]*string{
 			"hdi_isfolder": to.Ptr("true"),
 		},
@@ -260,20 +257,28 @@ func (d *AzureBlob) mkDir(ctx context.Context, fullDirName string) error {
 	return err
 }
 
-// Helper function for moving or renaming objects
+// ensureTrailingSlash ensures the provided path ends with a trailing slash.
+func ensureTrailingSlash(path string) string {
+	if !strings.HasSuffix(path, "/") {
+		return path + "/"
+	}
+	return path
+}
+
+// moveOrRename moves or renames blobs or directories from source to destination.
 func (d *AzureBlob) moveOrRename(ctx context.Context, srcPath, dstPath string, isDir bool, srcSize int64) error {
 	if isDir {
 		// Normalize paths for directory operations
 		srcPath = ensureTrailingSlash(srcPath)
 		dstPath = ensureTrailingSlash(dstPath)
 
-		// List source directory content
+		// List all blobs under the source directory
 		blobs, err := d.flattenListBlobs(ctx, srcPath)
 		if err != nil {
 			return fmt.Errorf("failed to list blobs: %w", err)
 		}
 
-		// Process each blob
+		// Iterate and copy each blob to the destination
 		for _, item := range blobs {
 			srcBlobName := *item.Name
 			relPath := strings.TrimPrefix(srcBlobName, srcPath)
@@ -281,36 +286,44 @@ func (d *AzureBlob) moveOrRename(ctx context.Context, srcPath, dstPath string, i
 
 			if isDirectory(item) {
 				// Create directory marker at destination
-				err := d.mkDir(ctx, itemDstPath)
-				if err != nil {
+				if err := d.mkDir(ctx, itemDstPath); err != nil {
 					return fmt.Errorf("failed to create directory marker [%s]: %w", itemDstPath, err)
 				}
 			} else {
+				// Copy file blob to destination
 				if err := d.copyFile(ctx, srcBlobName, itemDstPath); err != nil {
-					return fmt.Errorf("failed to copy blob %s: %w", srcBlobName, err)
+					return fmt.Errorf("failed to copy blob [%s]: %w", srcBlobName, err)
 				}
 			}
 		}
 
-		// Create directory marker in destination if no blobs were found
-		// This handles empty directory cases
+		// Handle empty directories by creating a marker at destination
 		if len(blobs) == 0 {
-			err := d.mkDir(ctx, dstPath)
-			if err != nil {
+			if err := d.mkDir(ctx, dstPath); err != nil {
 				return fmt.Errorf("failed to create directory [%s]: %w", dstPath, err)
 			}
 		}
 
 		// Delete source directory and its contents
-		return d.deleteFolder(ctx, srcPath)
+		if err := d.deleteFolder(ctx, srcPath); err != nil {
+			log.Fatalf("failed to delete source directory [%s]: %v\n", srcPath, err)
+			// Retry deletion once more
+			d.deleteFolder(ctx, srcPath)
+		}
+
+		return nil
 	}
 
-	// For single file
+	// Single file move or rename operation
 	if err := d.copyFile(ctx, srcPath, dstPath); err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
 	}
 
-	return d.deleteFile(ctx, srcPath, false)
+	// Delete source file after successful copy
+	if err := d.deleteFile(ctx, srcPath, false); err != nil {
+		log.Fatalf("failed to delete source file [%s]: %v\n", srcPath, err)
+	}
+	return nil
 }
 
 // optimizedUploadOptions returns the optimal upload options based on file size
@@ -348,7 +361,7 @@ func isDirectory(blob container.BlobItem) bool {
 		if val, ok := blob.Metadata["hdi_isfolder"]; ok && val != nil && *val == "true" {
 			return true
 		}
-		// Azure Storage Explorer 和其他工具可能使用不同的元数据键
+		// Azure Storage Explorer and other tools may use different metadata keys
 		if val, ok := blob.Metadata["is_directory"]; ok && val != nil && strings.ToLower(*val) == "true" {
 			return true
 		}
@@ -363,4 +376,24 @@ func isDirectory(blob container.BlobItem) bool {
 	}
 
 	return false
+}
+
+// deleteEmptyDirectory deletes a directory only if it's empty
+func (d *AzureBlob) deleteEmptyDirectory(ctx context.Context, dirPath string) error {
+	// Directory is empty, delete the directory marker
+	blobClient := d.containerClient.NewBlobClient(strings.TrimSuffix(dirPath, "/"))
+	_, err := blobClient.Delete(ctx, nil)
+
+	// Also try deleting with trailing slash (for different directory marker formats)
+	if err != nil && isNotFoundError(err) {
+		blobClient = d.containerClient.NewBlobClient(dirPath)
+		_, err = blobClient.Delete(ctx, nil)
+	}
+
+	// Ignore not found errors
+	if err != nil && isNotFoundError(err) {
+		return nil
+	}
+
+	return err
 }

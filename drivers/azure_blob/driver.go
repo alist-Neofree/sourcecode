@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 
@@ -25,63 +26,77 @@ type AzureBlob struct {
 	config          driver.Config
 }
 
-// Config returns driver configuration
+// Config returns the driver configuration.
 func (d *AzureBlob) Config() driver.Config {
 	return d.config
 }
 
-// GetAddition returns additional driver settings
+// GetAddition returns additional settings specific to Azure Blob Storage.
 func (d *AzureBlob) GetAddition() driver.Additional {
 	return &d.Addition
 }
 
-// Init initializes Azure Blob client
-// https://learn.microsoft.com/rest/api/storageservices/authorize-with-shared-key
+// Init initializes the Azure Blob Storage client using shared key authentication.
 func (d *AzureBlob) Init(ctx context.Context) error {
-	var name = extractAccountName(d.Addition.Endpoint)
-	credential, err := azblob.NewSharedKeyCredential(name, d.Addition.AccessKey)
+	// Validate the endpoint URL
+	accountName := extractAccountName(d.Addition.Endpoint)
+	if !regexp.MustCompile(`^[a-z0-9]$`).MatchString(accountName) {
+		return fmt.Errorf("invalid storage account name: must be chars of lowercase letters or numbers only")
+	}
+
+	credential, err := azblob.NewSharedKeyCredential(accountName, d.Addition.AccessKey)
 	if err != nil {
 		return fmt.Errorf("failed to create credential: %w", err)
 	}
 
-	client, err := azblob.NewClientWithSharedKeyCredential(d.Addition.Endpoint, credential,
+	// Check if Endpoint is just account name
+	endpoint := d.Addition.Endpoint
+	if accountName == endpoint {
+		endpoint = fmt.Sprintf("https://%s.blob.core.windows.net/", accountName)
+	}
+	// Initialize Azure Blob client with retry policy
+	client, err := azblob.NewClientWithSharedKeyCredential(endpoint, credential,
 		&azblob.ClientOptions{ClientOptions: azcore.ClientOptions{
 			Retry: policy.RetryOptions{
 				MaxRetries: MaxRetries,
 				RetryDelay: RetryDelay,
 			},
-		},
-		})
+		}})
 	if err != nil {
 		return fmt.Errorf("failed to create client: %w", err)
 	}
 	d.client = client
 
-	var containerName = strings.Trim(d.Addition.GetRootId(), "/\\")
+	// Ensure container exists or create it
+	containerName := strings.Trim(d.Addition.ContainerName, "/ \\")
+	if containerName == "" {
+		return fmt.Errorf("container name cannot be empty")
+	}
 	return d.createContainerIfNotExists(ctx, containerName)
 }
 
-// Drop releases resources
+// Drop releases resources associated with the Azure Blob client.
 func (d *AzureBlob) Drop(ctx context.Context) error {
 	d.client = nil
 	return nil
 }
 
-// List blobs and directories under the given path
-// https://learn.microsoft.com/rest/api/storageservices/list-blobs
+// List retrieves blobs and directories under the specified path.
 func (d *AzureBlob) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
-	prefix := dir.GetPath()
-	prefix = ensureTrailingSlash(prefix)
+	prefix := ensureTrailingSlash(dir.GetPath())
 
 	pager := d.containerClient.NewListBlobsHierarchyPager("/", &container.ListBlobsHierarchyOptions{
 		Prefix: &prefix,
 	})
+
 	var objs []model.Obj
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list blobs: %w", err)
 		}
+
+		// Process directories
 		for _, blobPrefix := range page.Segment.BlobPrefixes {
 			objs = append(objs, &model.Object{
 				Name:     path.Base(strings.TrimSuffix(*blobPrefix.Name, "/")),
@@ -91,6 +106,8 @@ func (d *AzureBlob) List(ctx context.Context, dir model.Obj, args model.ListArgs
 				IsFolder: true,
 			})
 		}
+
+		// Process files
 		for _, blob := range page.Segment.BlobItems {
 			if strings.HasSuffix(*blob.Name, "/") {
 				continue
@@ -108,11 +125,11 @@ func (d *AzureBlob) List(ctx context.Context, dir model.Obj, args model.ListArgs
 	return objs, nil
 }
 
-// Link generates a temporary SAS URL for blob access
-// https://learn.microsoft.com/rest/api/storageservices/create-service-sas
+// Link generates a temporary SAS URL for accessing a blob.
 func (d *AzureBlob) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	blobClient := d.containerClient.NewBlobClient(file.GetPath())
 	expireDuration := time.Hour * time.Duration(d.SignURLExpire)
+
 	sasURL, err := blobClient.GetSASURL(sas.BlobPermissions{Read: true}, time.Now().Add(expireDuration), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate SAS URL: %w", err)
@@ -120,11 +137,10 @@ func (d *AzureBlob) Link(ctx context.Context, file model.Obj, args model.LinkArg
 	return &model.Link{URL: sasURL}, nil
 }
 
-// MakeDir 创建一个虚拟目录（通过上传空对象实现）
+// MakeDir creates a virtual directory by uploading an empty blob as a marker.
 func (d *AzureBlob) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
 	dirPath := path.Join(parentDir.GetPath(), dirName)
-	err := d.mkDir(ctx, dirPath)
-	if err != nil {
+	if err := d.mkDir(ctx, dirPath); err != nil {
 		return nil, fmt.Errorf("failed to create directory marker: %w", err)
 	}
 
@@ -135,13 +151,12 @@ func (d *AzureBlob) MakeDir(ctx context.Context, parentDir model.Obj, dirName st
 	}, nil
 }
 
-// Move moves an object to another directory
+// Move relocates an object (file or directory) to a new directory.
 func (d *AzureBlob) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
 	srcPath := srcObj.GetPath()
 	dstPath := path.Join(dstDir.GetPath(), srcObj.GetName())
 
-	err := d.moveOrRename(ctx, srcPath, dstPath, srcObj.IsDir(), srcObj.GetSize())
-	if err != nil {
+	if err := d.moveOrRename(ctx, srcPath, dstPath, srcObj.IsDir(), srcObj.GetSize()); err != nil {
 		return nil, fmt.Errorf("move operation failed: %w", err)
 	}
 
@@ -154,13 +169,12 @@ func (d *AzureBlob) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.O
 	}, nil
 }
 
-// Rename renames an object
+// Rename changes the name of an existing object.
 func (d *AzureBlob) Rename(ctx context.Context, srcObj model.Obj, newName string) (model.Obj, error) {
 	srcPath := srcObj.GetPath()
 	dstPath := path.Join(path.Dir(srcPath), newName)
 
-	err := d.moveOrRename(ctx, srcPath, dstPath, srcObj.IsDir(), srcObj.GetSize())
-	if err != nil {
+	if err := d.moveOrRename(ctx, srcPath, dstPath, srcObj.IsDir(), srcObj.GetSize()); err != nil {
 		return nil, fmt.Errorf("rename operation failed: %w", err)
 	}
 
@@ -173,16 +187,7 @@ func (d *AzureBlob) Rename(ctx context.Context, srcObj model.Obj, newName string
 	}, nil
 }
 
-// Helper function to ensure paths end with slash
-func ensureTrailingSlash(path string) string {
-	if path != "" && !strings.HasSuffix(path, "/") {
-		return path + "/"
-	}
-	return path
-}
-
-// Copy blob to destination directory
-// https://learn.microsoft.com/rest/api/storageservices/copy-blob
+// Copy duplicates an object (file or directory) to a specified destination directory.
 func (d *AzureBlob) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
 	dstPath := path.Join(dstDir.GetPath(), srcObj.GetName())
 
@@ -243,7 +248,6 @@ func (d *AzureBlob) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.O
 	if err := d.copyFile(ctx, srcObj.GetPath(), dstPath); err != nil {
 		return nil, fmt.Errorf("failed to copy blob: %w", err)
 	}
-
 	return &model.Object{
 		Path:     dstPath,
 		Name:     srcObj.GetName(),
@@ -253,7 +257,7 @@ func (d *AzureBlob) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.O
 	}, nil
 }
 
-// Remove deletes the specified blob or recursively deletes a directory
+// Remove deletes a specified blob or recursively deletes a directory and its contents.
 func (d *AzureBlob) Remove(ctx context.Context, obj model.Obj) error {
 	path := obj.GetPath()
 
@@ -266,30 +270,29 @@ func (d *AzureBlob) Remove(ctx context.Context, obj model.Obj) error {
 	return d.deleteFile(ctx, path, false)
 }
 
-// Put uploads a file to Azure Blob Storage
-// https://learn.microsoft.com/rest/api/storageservices/put-blob
+// Put uploads a file stream to Azure Blob Storage with progress tracking.
 func (d *AzureBlob) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
 	blobPath := path.Join(dstDir.GetPath(), stream.GetName())
 	blobClient := d.containerClient.NewBlockBlobClient(blobPath)
 
-	// Use optimized upload options based on file size
+	// Determine optimal upload options based on file size
 	options := optimizedUploadOptions(stream.GetSize())
 
-	// Create a reader that tracks upload progress
+	// Track upload progress
 	progressTracker := &progressTracker{
 		total:          stream.GetSize(),
 		updateProgress: up,
 	}
 
-	// Use LimitedUploadStream to handle context cancellation
+	// Wrap stream to handle context cancellation and progress tracking
 	limitedStream := driver.NewLimitedUploadStream(ctx, io.TeeReader(stream, progressTracker))
 
+	// Upload the stream to Azure Blob Storage
 	_, err := blobClient.UploadStream(ctx, limitedStream, options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload file: %w", err)
 	}
 
-	// Return the newly created object
 	return &model.Object{
 		Path:     blobPath,
 		Name:     stream.GetName(),
@@ -299,24 +302,11 @@ func (d *AzureBlob) Put(ctx context.Context, dstDir model.Obj, stream model.File
 	}, nil
 }
 
-// // GetArchiveMeta returns archive file meta
-// func (d *AzureBlob) GetArchiveMeta(ctx context.Context, obj model.Obj, args model.ArchiveArgs) (model.ArchiveMeta, error) {
-// 	return nil, errs.NotImplement
-// }
+// The following methods related to archive handling are not implemented yet.
+// func (d *AzureBlob) GetArchiveMeta(...) {...}
+// func (d *AzureBlob) ListArchive(...) {...}
+// func (d *AzureBlob) Extract(...) {...}
+// func (d *AzureBlob) ArchiveDecompress(...) {...}
 
-// // ListArchive lists files in archive
-// func (d *AzureBlob) ListArchive(ctx context.Context, obj model.Obj, args model.ArchiveInnerArgs) ([]model.Obj, error) {
-// 	return nil, errs.NotImplement
-// }
-
-// // Extract extracts file from archive
-// func (d *AzureBlob) Extract(ctx context.Context, obj model.Obj, args model.ArchiveInnerArgs) (*model.Link, error) {
-// 	return nil, errs.NotImplement
-// }
-
-// // ArchiveDecompress extracts archive to directory
-// func (d *AzureBlob) ArchiveDecompress(ctx context.Context, srcObj, dstDir model.Obj, args model.ArchiveDecompressArgs) ([]model.Obj, error) {
-// 	return nil, errs.NotImplement
-// }
-
+// Ensure AzureBlob implements the driver.Driver interface.
 var _ driver.Driver = (*AzureBlob)(nil)

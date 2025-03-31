@@ -6,15 +6,14 @@ import (
 )
 
 type Addition struct {
-	driver.RootID `required:"false" help:"the container name"`
-	AccessKey     string `json:"access_key" required:"true" help:"Azure Storage account key"`
-	Endpoint      string `json:"endpoint" required:"true" default:"https://<account_name>.blob.core.windows.net/"`
-	SignURLExpire int    `json:"sign_url_expire" type:"number" default:"4" help:"SAS URL expiration time in hours"`
+	Endpoint      string `json:"endpoint" required:"true" default:"https://<accountname>.blob.core.windows.net/" help:"The full endpoint URL for Azure Storage, including the account name."`
+	AccessKey     string `json:"access_key" required:"true" help:"The access key for Azure Storage, used for authentication."`
+	ContainerName string `json:"container_name" required:"true" help:"The name of the container in Azure Storage (created in the Azure portal)."`
+	SignURLExpire int    `json:"sign_url_expire" type:"number" default:"4" help:"The expiration time for SAS URLs, in hours."`
 }
 
 var config = driver.Config{
 	Name:        "AzureBlob",
-	DefaultRoot: "/",
 	LocalSort:   true,
 	CheckStatus: true,
 }
