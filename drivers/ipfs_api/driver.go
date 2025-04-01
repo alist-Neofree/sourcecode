@@ -42,20 +42,27 @@ func (d *IPFS) Drop(ctx context.Context) error {
 }
 
 func (d *IPFS) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
-	ipfsPath := dir.GetPath()
-	switch d.Mode {
-	case "ipfs":
-		ipfsPath = filepath.Join("/ipfs", ipfsPath)
-	case "ipns":
-		ipfsPath = filepath.Join("/ipns", ipfsPath)
-	case "mfs":
-		fileStat, err := d.sh.FilesStat(ctx, ipfsPath)
-		if err != nil {
-			return nil, err
+	var ipfsPath string
+	cid := dir.GetID()
+	if cid != "" {
+		ipfsPath = filepath.Join("/ipfs", cid)
+	} else {
+		// 可能出现ipns dns解析失败的情况，需要重复获取cid，其他情况应该不会出错
+		ipfsPath = dir.GetPath()
+		switch d.Mode {
+		case "ipfs":
+			ipfsPath = filepath.Join("/ipfs", ipfsPath)
+		case "ipns":
+			ipfsPath = filepath.Join("/ipns", ipfsPath)
+		case "mfs":
+			fileStat, err := d.sh.FilesStat(ctx, ipfsPath)
+			if err != nil {
+				return nil, err
+			}
+			ipfsPath = filepath.Join("/ipfs", fileStat.Hash)
+		default:
+			return nil, fmt.Errorf("mode error")
 		}
-		ipfsPath = filepath.Join("/ipfs", fileStat.Hash)
-	default:
-		return nil, fmt.Errorf("mode error")
 	}
 	dirs, err := d.sh.List(ipfsPath)
 	if err != nil {
@@ -77,10 +84,23 @@ func (d *IPFS) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*
 }
 
 func (d *IPFS) Get(ctx context.Context, path string) (model.Obj, error) {
-	if d.Mode != "mfs" {
-		return nil, fmt.Errorf("only get path for mfs")
+	path = filepath.Join(d.GetRootPath(), path)
+	var ipfsPath string
+	switch d.Mode {
+	case "ipfs":
+		ipfsPath = filepath.Join("/ipfs", path)
+	case "ipns":
+		ipfsPath = filepath.Join("/ipns", path)
+	case "mfs":
+		fileStat, err := d.sh.FilesStat(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		ipfsPath = filepath.Join("/ipfs", fileStat.Hash)
+	default:
+		return nil, fmt.Errorf("mode error")
 	}
-	file, err := d.sh.FilesStat(ctx, path)
+	file, err := d.sh.FilesStat(ctx, ipfsPath)
 	if err != nil {
 		return nil, err
 	}
