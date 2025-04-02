@@ -17,7 +17,8 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/model"
 )
-
+// Azure Blob Storage based on the blob APIs
+// Link: https://learn.microsoft.com/rest/api/storageservices/blob-service-rest-api
 type AzureBlob struct {
 	model.Storage
 	Addition

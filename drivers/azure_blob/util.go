@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"path"
 	"sort"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -195,7 +195,6 @@ func (d *AzureBlob) deleteFile(ctx context.Context, path string, isDir bool) err
 	blobClient := d.containerClient.NewBlobClient(path)
 	_, err := blobClient.Delete(ctx, nil)
 	if err != nil && !(isDir && isNotFoundError(err)) {
-		log.Printf("Error deleting blob [%s]: %v", path, err)
 		return err
 	}
 	return nil
@@ -306,9 +305,11 @@ func (d *AzureBlob) moveOrRename(ctx context.Context, srcPath, dstPath string, i
 
 		// Delete source directory and its contents
 		if err := d.deleteFolder(ctx, srcPath); err != nil {
-			log.Fatalf("failed to delete source directory [%s]: %v\n", srcPath, err)
-			// Retry deletion once more
-			d.deleteFolder(ctx, srcPath)
+			log.Warnf("failed to delete source directory [%s]: %v\n, and try again", srcPath, err)
+			// Retry deletion once more and ignore the result
+			if err := d.deleteFolder(ctx, srcPath); err != nil {
+				log.Errorf("Retry deletion of source directory [%s] failed: %v", srcPath, err)
+			}
 		}
 
 		return nil
@@ -321,7 +322,7 @@ func (d *AzureBlob) moveOrRename(ctx context.Context, srcPath, dstPath string, i
 
 	// Delete source file after successful copy
 	if err := d.deleteFile(ctx, srcPath, false); err != nil {
-		log.Fatalf("failed to delete source file [%s]: %v\n", srcPath, err)
+		log.Errorf("Error deleting source file [%s]: %v", srcPath, err)
 	}
 	return nil
 }
@@ -392,6 +393,7 @@ func (d *AzureBlob) deleteEmptyDirectory(ctx context.Context, dirPath string) er
 
 	// Ignore not found errors
 	if err != nil && isNotFoundError(err) {
+		log.Infof("Directory [%s] not found during deletion: %v", dirPath, err)
 		return nil
 	}
 
