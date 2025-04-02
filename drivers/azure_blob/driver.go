@@ -40,7 +40,7 @@ func (d *AzureBlob) GetAddition() driver.Additional {
 func (d *AzureBlob) Init(ctx context.Context) error {
 	// Validate the endpoint URL
 	accountName := extractAccountName(d.Addition.Endpoint)
-	if !regexp.MustCompile(`^[a-z0-9]$`).MatchString(accountName) {
+	if !regexp.MustCompile(`^[a-z0-9]+$`).MatchString(accountName) {
 		return fmt.Errorf("invalid storage account name: must be chars of lowercase letters or numbers only")
 	}
 
