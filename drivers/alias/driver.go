@@ -97,7 +97,7 @@ func (d *Alias) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([
 	for _, dst := range dsts {
 		childCtx, cancel := context.WithTimeout(ctx, time.Duration(d.Timeout)*time.Second)
 		tmp, err := d.list(childCtx, dst, sub, fsArgs)
-		cancel()
+		defer cancel()
 		if errors.Is(err, context.DeadlineExceeded) {
 			continue
 		}
@@ -117,7 +117,7 @@ func (d *Alias) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (
 	for _, dst := range dsts {
 		childCtx, cancel := context.WithTimeout(ctx, time.Duration(d.Timeout)*time.Second)
 		link, err := d.link(childCtx, dst, sub, args)
-		cancel()
+		defer cancel()
 		if errors.Is(err, context.DeadlineExceeded) {
 			continue
 		}
