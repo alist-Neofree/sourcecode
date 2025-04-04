@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"path"
 	"path/filepath"
 
 	shell "github.com/ipfs/go-ipfs-api"
@@ -45,21 +46,21 @@ func (d *IPFS) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]
 	var ipfsPath string
 	cid := dir.GetID()
 	if cid != "" {
-		ipfsPath = filepath.Join("/ipfs", cid)
+		ipfsPath = path.Join("/ipfs", cid)
 	} else {
 		// 可能出现ipns dns解析失败的情况，需要重复获取cid，其他情况应该不会出错
 		ipfsPath = dir.GetPath()
 		switch d.Mode {
 		case "ipfs":
-			ipfsPath = filepath.Join("/ipfs", ipfsPath)
+			ipfsPath = path.Join("/ipfs", ipfsPath)
 		case "ipns":
-			ipfsPath = filepath.Join("/ipns", ipfsPath)
+			ipfsPath = path.Join("/ipns", ipfsPath)
 		case "mfs":
 			fileStat, err := d.sh.FilesStat(ctx, ipfsPath)
 			if err != nil {
 				return nil, err
 			}
-			ipfsPath = filepath.Join("/ipfs", fileStat.Hash)
+			ipfsPath = path.Join("/ipfs", fileStat.Hash)
 		default:
 			return nil, fmt.Errorf("mode error")
 		}
@@ -83,20 +84,20 @@ func (d *IPFS) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*
 	return &model.Link{URL: gateurl.String()}, nil
 }
 
-func (d *IPFS) Get(ctx context.Context, path string) (model.Obj, error) {
-	path = filepath.Join(d.GetRootPath(), path)
+func (d *IPFS) Get(ctx context.Context, rawPath string) (model.Obj, error) {
+	rawPath = path.Join(d.GetRootPath(), rawPath)
 	var ipfsPath string
 	switch d.Mode {
 	case "ipfs":
-		ipfsPath = filepath.Join("/ipfs", path)
+		ipfsPath = path.Join("/ipfs", rawPath)
 	case "ipns":
-		ipfsPath = filepath.Join("/ipns", path)
+		ipfsPath = path.Join("/ipns", rawPath)
 	case "mfs":
-		fileStat, err := d.sh.FilesStat(ctx, path)
+		fileStat, err := d.sh.FilesStat(ctx, rawPath)
 		if err != nil {
 			return nil, err
 		}
-		ipfsPath = filepath.Join("/ipfs", fileStat.Hash)
+		ipfsPath = path.Join("/ipfs", fileStat.Hash)
 	default:
 		return nil, fmt.Errorf("mode error")
 	}
@@ -104,30 +105,30 @@ func (d *IPFS) Get(ctx context.Context, path string) (model.Obj, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &model.Object{ID: file.Hash, Name: filepath.Base(path), Path: path, Size: int64(file.Size), IsFolder: file.Type == "directory"}, nil
+	return &model.Object{ID: file.Hash, Name: filepath.Base(rawPath), Path: rawPath, Size: int64(file.Size), IsFolder: file.Type == "directory"}, nil
 }
 
 func (d *IPFS) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
 	if d.Mode != "mfs" {
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
-	path := parentDir.GetPath()
-	err := d.sh.FilesMkdir(ctx, filepath.Join(path, dirName), shell.FilesMkdir.Parents(true))
+	dirPath := parentDir.GetPath()
+	err := d.sh.FilesMkdir(ctx, path.Join(dirPath, dirName), shell.FilesMkdir.Parents(true))
 	if err != nil {
 		return nil, err
 	}
-	file, err := d.sh.FilesStat(ctx, filepath.Join(path, dirName))
+	file, err := d.sh.FilesStat(ctx, path.Join(dirPath, dirName))
 	if err != nil {
 		return nil, err
 	}
-	return &model.Object{ID: file.Hash, Name: dirName, Path: filepath.Join(path, dirName), Size: int64(file.Size), IsFolder: true}, nil
+	return &model.Object{ID: file.Hash, Name: dirName, Path: path.Join(dirPath, dirName), Size: int64(file.Size), IsFolder: true}, nil
 }
 
 func (d *IPFS) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
 	if d.Mode != "mfs" {
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
-	dstPath := filepath.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath()))
+	dstPath := path.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath()))
 	d.sh.FilesRm(ctx, dstPath, true)
 	return &model.Object{ID: srcObj.GetID(), Name: srcObj.GetName(), Path: dstPath, Size: int64(srcObj.GetSize()), IsFolder: srcObj.IsDir()},
 		d.sh.FilesMv(ctx, srcObj.GetPath(), dstDir.GetPath())
@@ -137,7 +138,7 @@ func (d *IPFS) Rename(ctx context.Context, srcObj model.Obj, newName string) (mo
 	if d.Mode != "mfs" {
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
-	dstPath := filepath.Join(filepath.Dir(srcObj.GetPath()), newName)
+	dstPath := path.Join(filepath.Dir(srcObj.GetPath()), newName)
 	d.sh.FilesRm(ctx, dstPath, true)
 	return &model.Object{ID: srcObj.GetID(), Name: newName, Path: dstPath, Size: int64(srcObj.GetSize()),
 		IsFolder: srcObj.IsDir()}, d.sh.FilesMv(ctx, srcObj.GetPath(), dstPath)
@@ -147,10 +148,10 @@ func (d *IPFS) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, e
 	if d.Mode != "mfs" {
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
-	dstPath := filepath.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath()))
+	dstPath := path.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath()))
 	d.sh.FilesRm(ctx, dstPath, true)
 	return &model.Object{ID: srcObj.GetID(), Name: srcObj.GetName(), Path: dstPath, Size: int64(srcObj.GetSize()), IsFolder: srcObj.IsDir()},
-		d.sh.FilesCp(ctx, filepath.Join("/ipfs/", srcObj.GetID()), dstPath, shell.FilesCp.Parents(true))
+		d.sh.FilesCp(ctx, path.Join("/ipfs/", srcObj.GetID()), dstPath, shell.FilesCp.Parents(true))
 }
 
 func (d *IPFS) Remove(ctx context.Context, obj model.Obj) error {
@@ -171,11 +172,11 @@ func (d *IPFS) Put(ctx context.Context, dstDir model.Obj, s model.FileStreamer, 
 	if err != nil {
 		return nil, err
 	}
-	dstPath := filepath.Join(dstDir.GetPath(), s.GetName())
+	dstPath := path.Join(dstDir.GetPath(), s.GetName())
 	if s.GetExist() != nil {
 		d.sh.FilesRm(ctx, dstPath, true)
 	}
-	err = d.sh.FilesCp(ctx, filepath.Join("/ipfs/", outHash), dstPath, shell.FilesCp.Parents(true))
+	err = d.sh.FilesCp(ctx, path.Join("/ipfs/", outHash), dstPath, shell.FilesCp.Parents(true))
 	gateurl := d.gateURL.JoinPath("/ipfs/", outHash)
 	gateurl.RawQuery = "filename=" + url.QueryEscape(s.GetName())
 	return &model.Object{ID: outHash, Name: s.GetName(), Path: dstPath, Size: int64(s.GetSize()), IsFolder: s.IsDir()}, err
