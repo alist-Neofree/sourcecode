@@ -49,11 +49,15 @@ the address is defined in config file`,
 		r := gin.New()
 		r.Use(gin.LoggerWithWriter(log.StandardLogger().Out), gin.RecoveryWithWriter(log.StandardLogger().Out))
 		server.Init(r)
+		var httpHandler http.Handler = r
+		if conf.Conf.Scheme.EnableH2c {
+			httpHandler = h2c.NewHandler(r, &http2.Server{})
+		}
 		var httpSrv, httpsSrv, unixSrv *http.Server
 		if conf.Conf.Scheme.HttpPort != -1 {
 			httpBase := fmt.Sprintf("%s:%d", conf.Conf.Scheme.Address, conf.Conf.Scheme.HttpPort)
 			utils.Log.Infof("start HTTP server @ %s", httpBase)
-			httpSrv = &http.Server{Addr: httpBase, Handler: h2c.NewHandler(r, &http2.Server{})}
+			httpSrv = &http.Server{Addr: httpBase, Handler: httpHandler}
 			go func() {
 				err := httpSrv.ListenAndServe()
 				if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -74,7 +78,7 @@ the address is defined in config file`,
 		}
 		if conf.Conf.Scheme.UnixFile != "" {
 			utils.Log.Infof("start unix server @ %s", conf.Conf.Scheme.UnixFile)
-			unixSrv = &http.Server{Handler: h2c.NewHandler(r, &http2.Server{})}
+			unixSrv = &http.Server{Handler: httpHandler}
 			go func() {
 				listener, err := net.Listen("unix", conf.Conf.Scheme.UnixFile)
 				if err != nil {
