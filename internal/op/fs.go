@@ -9,6 +9,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/generic_sync"
 	"github.com/alist-org/alist/v3/pkg/singleflight"
 	"github.com/alist-org/alist/v3/pkg/utils"
@@ -510,6 +511,12 @@ func Put(ctx context.Context, storage driver.Driver, dstDirPath string, file mod
 			log.Errorf("failed to close file streamer, %v", err)
 		}
 	}()
+	// UrlTree PUT
+	if storage.GetStorage().Driver == "UrlTree" {
+		var link string
+		dstDirPath, link = urlTreeSplitLineFormPath(stdpath.Join(dstDirPath + file.GetName()))
+		file = &stream.FileStream{Obj: &model.Object{Name: link}}
+	}
 	// if file exist and size = 0, delete it
 	dstDirPath = utils.FixAndCleanPath(dstDirPath)
 	dstPath := stdpath.Join(dstDirPath, file.GetName())
