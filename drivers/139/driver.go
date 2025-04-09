@@ -531,6 +531,8 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		part := size / partSize
 		if size%partSize > 0 {
 			part++
+		} else if part == 0 {
+			part = 1
 		}
 		partInfos := make([]PartInfo, 0, part)
 		for i := int64(0); i < part; i++ {
@@ -786,6 +788,8 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		part := size / partSize
 		if size%partSize > 0 {
 			part++
+		} else if part == 0 {
+			part = 1
 		}
 		rateLimited := driver.NewLimitedUploadStream(ctx, stream)
 		for i := int64(0); i < part; i++ {
