@@ -1,6 +1,8 @@
 package doubao
 
 import (
+	"encoding/json"
+	"fmt"
 	"github.com/alist-org/alist/v3/internal/model"
 	"time"
 )
@@ -350,4 +352,52 @@ type VideoCommitUploadResp struct {
 		RequestID string              `json:"RequestId"`
 		Results   []VideoCommitUpload `json:"Results"`
 	} `json:"Result"`
+}
+
+type CommonResp struct {
+	Code    int             `json:"code"`
+	Msg     string          `json:"msg,omitempty"`
+	Message string          `json:"message,omitempty"` // 错误情况下的消息
+	Data    json.RawMessage `json:"data,omitempty"`    // 原始数据,稍后解析
+	Error   *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Locale  string `json:"locale"`
+	} `json:"error,omitempty"`
+}
+
+// IsSuccess 判断响应是否成功
+func (r *CommonResp) IsSuccess() bool {
+	return r.Code == 0
+}
+
+// GetError 获取错误信息
+func (r *CommonResp) GetError() error {
+	if r.IsSuccess() {
+		return nil
+	}
+	// 优先使用message字段
+	errMsg := r.Message
+	if errMsg == "" {
+		errMsg = r.Msg
+	}
+	// 如果error对象存在且有详细消息,则使用error中的信息
+	if r.Error != nil && r.Error.Message != "" {
+		errMsg = r.Error.Message
+	}
+
+	return fmt.Errorf("[doubao] API error (code: %d): %s", r.Code, errMsg)
+}
+
+// UnmarshalData 将data字段解析为指定类型
+func (r *CommonResp) UnmarshalData(v interface{}) error {
+	if !r.IsSuccess() {
+		return r.GetError()
+	}
+
+	if len(r.Data) == 0 {
+		return nil
+	}
+
+	return json.Unmarshal(r.Data, v)
 }

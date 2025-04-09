@@ -67,7 +67,7 @@ func (d *Doubao) Drop(ctx context.Context) error {
 
 func (d *Doubao) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
 	var files []model.Obj
-	fileList, err := d.getFiles(dir.GetID())
+	fileList, err := d.getFiles(dir.GetID(), "")
 	if err != nil {
 		return nil, err
 	}

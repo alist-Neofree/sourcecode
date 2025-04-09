@@ -73,40 +73,70 @@ func (d *Doubao) request(path string, method string, callback base.ReqCallback, 
 	if callback != nil {
 		callback(req)
 	}
-	var r BaseResp
-	req.SetResult(&r)
+
+	var commonResp CommonResp
+
 	res, err := req.Execute(method, reqUrl)
 	log.Debugln(res.String())
 	if err != nil {
 		return nil, err
 	}
 
-	// 业务状态码检查（优先于HTTP状态码）
-	if r.Code != 0 {
-		return res.Body(), errors.New(r.Msg)
+	body := res.Body()
+	// 先解析为通用响应
+	if err = json.Unmarshal(body, &commonResp); err != nil {
+		return nil, err
 	}
+	// 检查响应是否成功
+	if !commonResp.IsSuccess() {
+		return body, commonResp.GetError()
+	}
+
 	if resp != nil {
-		err = utils.Json.Unmarshal(res.Body(), resp)
-		if err != nil {
-			return nil, err
+		if err = json.Unmarshal(body, resp); err != nil {
+			return body, err
 		}
 	}
-	return res.Body(), nil
+
+	return body, nil
 }
 
-func (d *Doubao) getFiles(dirId string) ([]File, error) {
+func (d *Doubao) getFiles(dirId, cursor string) (resp []File, err error) {
 	var r NodeInfoResp
-	_, err := d.request("/samantha/aispace/node_info", http.MethodPost, func(req *resty.Request) {
-		req.SetBody(base.Json{
-			"node_id":        dirId,
-			"need_full_path": false,
-		})
+
+	var body = base.Json{
+		"node_id": dirId,
+	}
+	// 如果有游标，则设置游标和大小
+	if cursor != "" {
+		body["cursor"] = cursor
+		body["size"] = 50
+	} else {
+		body["need_full_path"] = false
+	}
+
+	_, err = d.request("/samantha/aispace/node_info", http.MethodPost, func(req *resty.Request) {
+		req.SetBody(body)
 	}, &r)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.Data.Children, nil
+	if r.Data.Children != nil {
+		resp = r.Data.Children
+	}
+
+	if r.Data.NextCursor != "-1" {
+		// 递归获取下一页
+		nextFiles, err := d.getFiles(dirId, r.Data.NextCursor)
+		if err != nil {
+			return nil, err
+		}
+
+		resp = append(r.Data.Children, nextFiles...)
+	}
+
+	return resp, err
 }
 
 func (d *Doubao) getUserInfo() (UserInfo, error) {
