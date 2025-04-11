@@ -163,10 +163,10 @@ func (d *Pan123) login() error {
 		SetHeaders(map[string]string{
 			"origin":      "https://www.123pan.com",
 			"referer":     "https://www.123pan.com/",
-			"user-agent":  "123pan/v2.4.0(Android_7.1.2;Xiaomi)",
+			"user-agent":  "123pan/2.5.5(Android_13.1.1;Vivo)",
 			"platform":    "android",
-			"app-version": "61",
-			"x-app-version": "2.4.0",
+			"app-version": "78",
+			"x-app-version": "2.5.5",
 			//"user-agent":  base.UserAgent,
 		}).
 		SetBody(body).Post(SignIn)
@@ -203,10 +203,10 @@ do:
 		"origin":        "https://www.123pan.com",
 		"referer":       "https://www.123pan.com/",
 		"authorization": "Bearer " + d.AccessToken,
-		"user-agent":    "123pan/v2.4.0(Android_7.1.2;Xiaomi)",
+		"user-agent":    "123pan/2.5.5(Android_13.1.1;Vivo)",
 		"platform":      "android",
-		"app-version":   "61",
-		"x-app-version": "2.4.0",
+		"app-version":   "78",
+		"x-app-version": "2.5.5",
 		//"user-agent":    base.UserAgent,
 	})
 	if callback != nil {
