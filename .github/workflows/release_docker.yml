@@ -21,7 +21,7 @@ env:
   REGISTRY_USERNAME: 'zhr520v'
   REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
   ARTIFACT_NAME: 'binaries_docker_release'
-  RELEASE_PLATFORMS: 'linux/amd64,linux/arm64,linux/arm/v7,linux/386,linux/arm/v6,linux/s390x,linux/ppc64le,linux/riscv64'
+  RELEASE_PLATFORMS: 'linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6'
   IMAGE_PUSH: true
   IMAGE_IS_PROD: ${{ github.event.inputs.release_type == 'release' }}
   IMAGE_TAGS_BETA: |
