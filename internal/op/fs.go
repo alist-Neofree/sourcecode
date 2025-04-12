@@ -3,6 +3,7 @@ package op
 import (
 	"context"
 	stdpath "path"
+	"slices"
 	"time"
 
 	"github.com/Xhofe/go-cache"
@@ -25,6 +26,12 @@ func updateCacheObj(storage driver.Driver, path string, oldObj model.Obj, newObj
 	key := Key(storage, path)
 	objs, ok := listCache.Get(key)
 	if ok {
+		for i, obj := range objs {
+			if obj.GetName() == newObj.GetName() {
+				objs = slices.Delete(objs, i, i+1)
+				break
+			}
+		}
 		for i, obj := range objs {
 			if obj.GetName() == oldObj.GetName() {
 				objs[i] = newObj
