@@ -35,9 +35,11 @@ func (d *Doubao) GetAddition() driver.Additional {
 func (d *Doubao) Init(ctx context.Context) error {
 	// TODO login / refresh token
 	//op.MustSaveDriverStorage(d)
-	d.uploadThread, _ = strconv.Atoi(d.UploadThread)
-	if d.uploadThread < 1 {
-		d.uploadThread, d.UploadThread = 3, "3"
+	uploadThread, err := strconv.Atoi(d.UploadThread)
+	if err != nil || uploadThread < 1 {
+		d.uploadThread, d.UploadThread = 3, "3" // Set default value
+	} else {
+		d.uploadThread = uploadThread
 	}
 
 	if d.UserId == "" {
