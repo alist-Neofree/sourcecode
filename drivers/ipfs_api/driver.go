@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"path"
-	"path/filepath"
 
 	shell "github.com/ipfs/go-ipfs-api"
 
@@ -105,7 +104,7 @@ func (d *IPFS) Get(ctx context.Context, rawPath string) (model.Obj, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &model.Object{ID: file.Hash, Name: filepath.Base(rawPath), Path: rawPath, Size: int64(file.Size), IsFolder: file.Type == "directory"}, nil
+	return &model.Object{ID: file.Hash, Name: path.Base(rawPath), Path: rawPath, Size: int64(file.Size), IsFolder: file.Type == "directory"}, nil
 }
 
 func (d *IPFS) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
@@ -128,7 +127,7 @@ func (d *IPFS) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, e
 	if d.Mode != "mfs" {
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
-	dstPath := path.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath()))
+	dstPath := path.Join(dstDir.GetPath(), path.Base(srcObj.GetPath()))
 	d.sh.FilesRm(ctx, dstPath, true)
 	return &model.Object{ID: srcObj.GetID(), Name: srcObj.GetName(), Path: dstPath, Size: int64(srcObj.GetSize()), IsFolder: srcObj.IsDir()},
 		d.sh.FilesMv(ctx, srcObj.GetPath(), dstDir.GetPath())
@@ -138,7 +137,7 @@ func (d *IPFS) Rename(ctx context.Context, srcObj model.Obj, newName string) (mo
 	if d.Mode != "mfs" {
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
-	dstPath := path.Join(filepath.Dir(srcObj.GetPath()), newName)
+	dstPath := path.Join(path.Dir(srcObj.GetPath()), newName)
 	d.sh.FilesRm(ctx, dstPath, true)
 	return &model.Object{ID: srcObj.GetID(), Name: newName, Path: dstPath, Size: int64(srcObj.GetSize()),
 		IsFolder: srcObj.IsDir()}, d.sh.FilesMv(ctx, srcObj.GetPath(), dstPath)
@@ -148,7 +147,7 @@ func (d *IPFS) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, e
 	if d.Mode != "mfs" {
 		return nil, fmt.Errorf("only write in mfs mode")
 	}
-	dstPath := path.Join(dstDir.GetPath(), filepath.Base(srcObj.GetPath()))
+	dstPath := path.Join(dstDir.GetPath(), path.Base(srcObj.GetPath()))
 	d.sh.FilesRm(ctx, dstPath, true)
 	return &model.Object{ID: srcObj.GetID(), Name: srcObj.GetName(), Path: dstPath, Size: int64(srcObj.GetSize()), IsFolder: srcObj.IsDir()},
 		d.sh.FilesCp(ctx, path.Join("/ipfs/", srcObj.GetID()), dstPath, shell.FilesCp.Parents(true))
