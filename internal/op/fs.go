@@ -514,7 +514,7 @@ func Put(ctx context.Context, storage driver.Driver, dstDirPath string, file mod
 	// UrlTree PUT
 	if storage.GetStorage().Driver == "UrlTree" {
 		var link string
-		dstDirPath, link = urlTreeSplitLineFormPath(stdpath.Join(dstDirPath + file.GetName()))
+		dstDirPath, link = urlTreeSplitLineFormPath(stdpath.Join(dstDirPath, file.GetName()))
 		file = &stream.FileStream{Obj: &model.Object{Name: link}}
 	}
 	// if file exist and size = 0, delete it
