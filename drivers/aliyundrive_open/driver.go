@@ -188,7 +188,8 @@ func (d *AliyundriveOpen) Move(ctx context.Context, srcObj, dstDir model.Obj) (m
 
 		// Check for duplicate files in the destination directory
 		if err := d.removeDuplicateFiles(ctx, dstDir.GetPath(), srcObj.GetName(), srcObj.GetID()); err != nil {
-			log.Errorf("Failed to remove duplicate files after move: %v", err)
+			// Only log a warning instead of returning an error since the move operation has already completed successfully
+			log.Warnf("Failed to remove duplicate files after move: %v", err)
 		}
 		return srcObj, nil
 	}
@@ -211,7 +212,8 @@ func (d *AliyundriveOpen) Rename(ctx context.Context, srcObj model.Obj, newName 
 	// Check for duplicate files in the parent directory
 	parentPath := filepath.Dir(srcObj.GetPath())
 	if err := d.removeDuplicateFiles(ctx, parentPath, newName, newFile.FileId); err != nil {
-		log.Errorf("Failed to remove duplicate files after rename: %v", err)
+		// Only log a warning instead of returning an error since the rename operation has already completed successfully
+		log.Warnf("Failed to remove duplicate files after rename: %v", err)
 	}
 
 	obj := fileToObj(newFile)
@@ -242,7 +244,8 @@ func (d *AliyundriveOpen) Copy(ctx context.Context, srcObj, dstDir model.Obj) er
 
 	// Check for duplicate files in the destination directory
 	if err := d.removeDuplicateFiles(ctx, dstDir.GetPath(), srcObj.GetName(), resp.FileID); err != nil {
-		log.Errorf("Failed to remove duplicate files after copy: %v", err)
+		// Only log a warning instead of returning an error since the copy operation has already completed successfully
+		log.Warnf("Failed to remove duplicate files after copy: %v", err)
 	}
 
 	return nil
