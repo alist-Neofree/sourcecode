@@ -212,10 +212,6 @@ func (d *AliyundriveOpen) removeDuplicateFiles(ctx context.Context, parentPath s
 
 	// Remove all duplicates files, except the file with the given ID
 	for _, file := range duplicates {
-		if file.GetID() == skipID {
-			continue
-		}
-
 		err := d.Remove(ctx, file)
 		if err != nil {
 			return err
