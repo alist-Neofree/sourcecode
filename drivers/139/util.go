@@ -449,7 +449,7 @@ func unicode(str string) string {
 }
 
 func (d *Yun139) personalRequest(pathname string, method string, callback base.ReqCallback, resp interface{}) ([]byte, error) {
-	url := d.PersonalCloudHost + pathname
+	url := d.getPersonalCloudHost() + pathname
 	req := base.RestyClient.R()
 	randStr := random.String(16)
 	ts := time.Now().Format("2006-01-02 15:04:05")
@@ -608,4 +608,10 @@ func (d *Yun139) getAccount() string {
 		return d.ref.getAccount()
 	}
 	return d.Account
+}
+func (d *Yun139) getPersonalCloudHost() string {
+	if d.ref != nil {
+		return d.ref.getPersonalCloudHost()
+	}
+	return d.PersonalCloudHost
 }

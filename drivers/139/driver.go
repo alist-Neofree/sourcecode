@@ -2,14 +2,12 @@ package _139
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"path"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/alist-org/alist/v3/drivers/base"
@@ -42,13 +40,36 @@ func (d *Yun139) GetAddition() driver.Additional {
 
 func (d *Yun139) Init(ctx context.Context) error {
 	if d.ref == nil {
-		if d.Authorization == "" {
+		if len(d.Authorization) == 0 {
 			return fmt.Errorf("authorization is empty")
 		}
 		err := d.refreshToken()
 		if err != nil {
 			return err
 		}
+
+		// Query Route Policy
+		var resp QueryRoutePolicyResp
+		_, err = d.requestRoute(base.Json{
+			"userInfo": base.Json{
+				"userType":    1,
+				"accountType": 1,
+				"accountName": d.Account},
+			"modAddrType": 1,
+		}, &resp)
+		if err != nil {
+			return err
+		}
+		for _, policyItem := range resp.Data.RoutePolicyList {
+			if policyItem.ModName == "personal" {
+				d.PersonalCloudHost = policyItem.HttpsUrl
+				break
+			}
+		}
+		if len(d.PersonalCloudHost) == 0 {
+			return fmt.Errorf("PersonalCloudHost is empty")
+		}
+
 		d.cron = cron.NewCron(time.Hour * 12)
 		d.cron.Do(func() {
 			err := d.refreshToken()
@@ -74,53 +95,6 @@ func (d *Yun139) Init(ctx context.Context) error {
 	default:
 		return errs.NotImplement
 	}
-	if d.ref != nil {
-		return nil
-	}
-	decode, err := base64.StdEncoding.DecodeString(d.Authorization)
-	if err != nil {
-		return err
-	}
-	decodeStr := string(decode)
-	splits := strings.Split(decodeStr, ":")
-	if len(splits) < 2 {
-		return fmt.Errorf("authorization is invalid, splits < 2")
-	}
-	d.Account = splits[1]
-	_, err = d.post("/orchestration/personalCloud/user/v1.0/qryUserExternInfo", base.Json{
-		"qryUserExternInfoReq": base.Json{
-			"commonAccountInfo": base.Json{
-				"account":     d.getAccount(),
-				"accountType": 1,
-			},
-		},
-	}, nil)
-	if err != nil {
-		return err
-	}
-
-	log.Info("Start query Route Policy")
-	var resp QueryRoutePolicyResp
-	_, err = d.requestRoute(base.Json{
-		"userInfo": base.Json{
-			"userType":    1,
-			"accountType": 1,
-			"accountName": d.getAccount()},
-		"modAddrType": 1,
-	}, &resp)
-
-	if err != nil {
-		return err
-	}
-	log.Info("Query route result completed successfully")
-
-	for _, policyItem := range resp.Data.RoutePolicyList {
-		if policyItem.ModName == "personal" {
-			d.PersonalCloudHost = policyItem.HttpsUrl
-			break
-		}
-	}
-
 	return nil
 }
 
