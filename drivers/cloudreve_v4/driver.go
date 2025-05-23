@@ -147,7 +147,7 @@ func (d *CloudreveV4) Link(ctx context.Context, file model.Obj, args model.LinkA
 	}
 	exp := time.Until(url.Expires)
 	return &model.Link{
-		URL:        url.Urls[0],
+		URL:        url.Urls[0].URL,
 		Expiration: &exp,
 	}, nil
 }

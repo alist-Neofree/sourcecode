@@ -128,7 +128,9 @@ type FileResp struct {
 }
 
 type FileUrlResp struct {
-	Urls    []string  `json:"urls"`
+	Urls []struct {
+		URL string `json:"url"`
+	} `json:"urls"`
 	Expires time.Time `json:"expires"`
 }
 
