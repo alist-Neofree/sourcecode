@@ -173,7 +173,7 @@ func (d *Pan123) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 					"fileId":       f.FileId,
 					"fileName":     f.FileName,
 					"size":         f.Size,
-					"type":         f.Type
+					"type":         f.Type,
 				},
 			},
 			"targetFileId": dstDir.GetID(), 
