@@ -164,7 +164,27 @@ func (d *Pan123) Rename(ctx context.Context, srcObj model.Obj, newName string) e
 }
 
 func (d *Pan123) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
-	return errs.NotSupport
+	if f, ok := srcObj.(File); ok { 
+		data := base.Json{
+			"fileList": []map[string]interface{}{ 
+				{
+					"driveId":      0,
+					"etag":         f.Etag,
+					"fileId":       f.FileId,
+					"fileName":     f.FileName,
+					"size":         f.Size,
+					"type":         f.Type
+				},
+			},
+			"targetFileId": dstDir.GetID(), 
+		}
+		_, err := d.Request(Copy, http.MethodPost, func(req *resty.Request) {
+			req.SetBody(data)
+		}, nil)
+		return err
+	} else {
+		return fmt.Errorf("can't convert srcObj to File")
+	}
 }
 
 func (d *Pan123) Remove(ctx context.Context, obj model.Obj) error {
