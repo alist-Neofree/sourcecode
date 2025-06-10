@@ -269,9 +269,6 @@ func (d *MoPan) Put(ctx context.Context, dstDir model.Obj, stream model.FileStre
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		_ = file.Close()
-	}()
 
 	// step.1
 	uploadPartData, err := mopan.InitUploadPartData(ctx, mopan.UpdloadFileParam{
@@ -315,9 +312,6 @@ func (d *MoPan) Put(ctx context.Context, dstDir model.Obj, stream model.FileStre
 			if utils.IsCanceled(upCtx) {
 				break
 			}
-			if err = sem.Acquire(ctx, 1); err != nil {
-				break
-			}
 			i, part, byteSize := i, part, initUpdload.PartSize
 			if part.PartNumber == uploadPartData.PartTotal {
 				byteSize = initUpdload.LastPartSize
@@ -325,6 +319,9 @@ func (d *MoPan) Put(ctx context.Context, dstDir model.Obj, stream model.FileStre
 
 			// step.4
 			threadG.Go(func(ctx context.Context) error {
+				if err = sem.Acquire(ctx, 1); err != nil {
+					return err
+				}
 				defer sem.Release(1)
 				reader := io.NewSectionReader(file, int64(part.PartNumber-1)*initUpdload.PartSize, byteSize)
 				req, err := part.NewRequest(ctx, driver.NewLimitedUploadStream(ctx, reader))
